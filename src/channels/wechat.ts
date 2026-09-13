@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import qrcodeTerminal from "qrcode-terminal";
-import { formatWechatText } from "./common.mjs";
+import { formatWechatText } from "./common.js";
+import type { WechatAuth } from "../types/index.js";
 
 const FIXED_BASE_URL = "https://ilinkai.weixin.qq.com";
 const ILINK_APP_ID = "bot";
@@ -13,16 +14,16 @@ const baseInfo = {
     bot_agent: "OpenClaw",
 };
 
-let currentAuth = null;
-let lastKnownUserId = null;
+let currentAuth: WechatAuth | null = null;
+let lastKnownUserId: string | null = null;
 
-function randomWechatUin() {
+function randomWechatUin(): string {
     const uint32 = crypto.randomBytes(4).readUInt32BE(0);
     return Buffer.from(String(uint32), "utf-8").toString("base64");
 }
 
-function commonHeaders(token = null) {
-    const headers = {
+function commonHeaders(token: string | null = null): Record<string, string> {
+    const headers: Record<string, string> = {
         "Content-Type": "application/json",
         "iLink-App-Id": ILINK_APP_ID,
         "iLink-App-ClientVersion": String(ILINK_APP_CLIENT_VERSION),
@@ -36,7 +37,7 @@ function commonHeaders(token = null) {
 }
 
 // 扫码登录流程
-async function loginWechatFlow(authPath) {
+export async function loginWechatFlow(authPath?: string): Promise<WechatAuth> {
     console.log("=========================================");
     console.log("  微信通道扫码登录授权");
     console.log("=========================================");
@@ -47,7 +48,7 @@ async function loginWechatFlow(authPath) {
         headers: commonHeaders(),
         body: JSON.stringify({ local_token_list: [], base_info: baseInfo }),
     });
-    const qrData = await qrRes.json();
+    const qrData = await qrRes.json() as any;
 
     if (!qrData.qrcode || !qrData.qrcode_img_content) {
         throw new Error("获取二维码失败: " + JSON.stringify(qrData));
@@ -71,13 +72,12 @@ async function loginWechatFlow(authPath) {
                     },
                 }
             );
-            const statusData = await pollRes.json();
+            const statusData = await pollRes.json() as any;
 
             if (statusData.status === "confirmed") {
                 console.log("\n[+] 微信扫码授权成功");
-                const authInfo = {
+                const authInfo: WechatAuth = {
                     botToken: statusData.bot_token,
-                    accountId: statusData.ilink_bot_id,
                     baseUrl: statusData.baseurl || FIXED_BASE_URL,
                     userId: statusData.ilink_user_id,
                 };
@@ -91,7 +91,7 @@ async function loginWechatFlow(authPath) {
             } else if (statusData.status === "scaned_but_redirect" && statusData.redirect_host) {
                 currentBaseUrl = `https://${statusData.redirect_host}`;
             } else if (statusData.status === "expired") {
-                throw new Error("二维码已过期，请重启脚本。");
+                throw new Error("二维码已过期，请重启服务重试。");
             }
         } catch (e) {}
         await new Promise((r) => setTimeout(r, 1000));
@@ -99,12 +99,10 @@ async function loginWechatFlow(authPath) {
 }
 
 // 发送单条消息到微信（深度兼容 Windows 电脑端微信 Markdown 渲染规范）
-async function sendSingleWechatMessage(auth, toUserId, text, contextToken) {
+async function sendSingleWechatMessage(auth: WechatAuth | null, toUserId: string, text: string, contextToken?: string): Promise<void> {
     const activeAuth = auth || currentAuth;
     if (!activeAuth) return;
 
-    // 兼容电脑端微信：PC 微信按 CommonMark 规范解析，单换行被折叠；ilink 会自动裁剪行末空格导致双空格硬换行失效。
-    // formatWechatText 将非代码块的每行转换为独立段落 (双换行)，确保在 PC 微信客户端正常分行显示。
     const formattedText = formatWechatText(text);
 
     const payload = {
@@ -112,11 +110,11 @@ async function sendSingleWechatMessage(auth, toUserId, text, contextToken) {
             from_user_id: "",
             to_user_id: toUserId,
             client_id: `cb-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            message_type: 2, // BOT
-            message_state: 2, // FINISH
+            message_type: 2,
+            message_state: 2,
             item_list: [
                 {
-                    type: 1, // TEXT
+                    type: 1,
                     text_item: { text: formattedText },
                 },
             ],
@@ -131,17 +129,17 @@ async function sendSingleWechatMessage(auth, toUserId, text, contextToken) {
             headers: commonHeaders(activeAuth.botToken),
             body: JSON.stringify(payload),
         });
-        const d = await res.json();
+        const d = await res.json() as any;
         if (d.ret !== undefined && d.ret !== 0) {
             console.error("[-] 发送微信消息返回错误:", JSON.stringify(d));
         }
-    } catch (err) {
-        console.error("[-] 发送微信回复异常:", err.message);
+    } catch (err: any) {
+        console.error("[-] 发送微信回复异常:", err?.message);
     }
 }
 
 // 发送消息到微信（支持超长内容智能分片 + 保存至 latest_result.md）
-export async function sendWechatReply(auth, toUserId, content, contextToken, workDir = null) {
+export async function sendWechatReply(auth: WechatAuth | null, toUserId: string | null, content: string, contextToken?: string, workDir: string | null = null): Promise<void> {
     if (!content) return;
     const targetUserId = toUserId || lastKnownUserId;
     if (!targetUserId) return;
@@ -183,9 +181,15 @@ export async function sendWechatReply(auth, toUserId, content, contextToken, wor
     }
 }
 
+export interface StartWechatOptions {
+    authPath?: string;
+    syncPath?: string;
+    onMessage?: (msg: { channel: string; userId: string; text: string; contextToken?: string }) => void;
+}
+
 // 启动微信轮询监听
-export async function startWechatChannel({ authPath, syncPath, onMessage }) {
-    let auth = null;
+export async function startWechatChannel({ authPath, syncPath, onMessage }: StartWechatOptions) {
+    let auth: WechatAuth | null = null;
     if (authPath && fs.existsSync(authPath)) {
         try {
             auth = JSON.parse(fs.readFileSync(authPath, "utf-8"));
@@ -196,7 +200,7 @@ export async function startWechatChannel({ authPath, syncPath, onMessage }) {
         auth = await loginWechatFlow(authPath);
     }
     currentAuth = auth;
-    console.log(`[+] 微信通道已激活 (Account: ${auth.accountId})`);
+    console.log(`[+] 微信通道已激活`);
 
     let syncBuf = "";
     if (syncPath && fs.existsSync(syncPath)) {
@@ -205,19 +209,18 @@ export async function startWechatChannel({ authPath, syncPath, onMessage }) {
         } catch {}
     }
 
-    // 后台长轮询拉取更新
     (async () => {
         while (true) {
             try {
-                const res = await fetch(`${auth.baseUrl}/ilink/bot/getupdates`, {
+                const res = await fetch(`${auth!.baseUrl}/ilink/bot/getupdates`, {
                     method: "POST",
-                    headers: commonHeaders(auth.botToken),
+                    headers: commonHeaders(auth!.botToken),
                     body: JSON.stringify({
                         get_updates_buf: syncBuf,
                         base_info: baseInfo,
                     }),
                 });
-                const data = await res.json();
+                const data = await res.json() as any;
 
                 const isError =
                     (data.ret !== undefined && data.ret !== 0) ||
@@ -232,7 +235,7 @@ export async function startWechatChannel({ authPath, syncPath, onMessage }) {
                     if (Array.isArray(data.msgs) && data.msgs.length > 0) {
                         for (const msg of data.msgs) {
                             const fromUser = msg.from_user_id;
-                            const textItem = msg.item_list?.find((i) => i.type === 1);
+                            const textItem = msg.item_list?.find((i: any) => i.type === 1);
                             const rawText = textItem?.text_item?.text?.trim();
                             if (!rawText) continue;
 
@@ -257,8 +260,8 @@ export async function startWechatChannel({ authPath, syncPath, onMessage }) {
                 } else {
                     await new Promise((r) => setTimeout(r, 2000));
                 }
-            } catch (err) {
-                console.error("[-] 微信轮询异常:", err.message);
+            } catch (err: any) {
+                console.error("[-] 微信轮询异常:", err?.message);
                 await new Promise((r) => setTimeout(r, 2000));
             }
         }

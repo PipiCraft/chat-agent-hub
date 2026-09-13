@@ -4,18 +4,16 @@ import readline from "node:readline";
 import * as lark from "@larksuiteoapi/node-sdk";
 
 import {
-    ROOT_DIR,
     AUTH_PATH,
+    LAST_FEISHU_USER_PATH,
+    LAST_DINGTALK_USER_PATH,
     getConfig,
     getPendingQuestions,
     savePendingQuestions,
     allocateReqId,
     registerOrUpdateInstance,
-} from "./core/state.mjs";
-import { shouldNotifyChannel, formatWechatText } from "./channels/common.mjs";
-
-const LAST_FEISHU_USER_PATH = path.join(ROOT_DIR, "last-feishu-user.json");
-const LAST_DINGTALK_USER_PATH = path.join(ROOT_DIR, "last-dingtalk-user.json");
+} from "./core/state.js";
+import { shouldNotifyChannel, formatWechatText } from "./channels/common.js";
 
 const baseInfo = {
     channel_version: "2.4.8",
@@ -31,7 +29,7 @@ function getAuth() {
     }
 }
 
-async function sendToFeishu(text) {
+async function sendToFeishu(text: string): Promise<boolean | null> {
     try {
         const conf = getConfig();
         const feishuConf = conf.channels?.feishu;
@@ -56,7 +54,7 @@ async function sendToFeishu(text) {
 
         const larkClient = new lark.Client({ appId: feishuConf.appId, appSecret: feishuConf.appSecret });
         await larkClient.im.message.create({
-            params: { receive_id_type: receiveIdType },
+            params: { receive_id_type: receiveIdType as any },
             data: {
                 receive_id: receiveId,
                 msg_type: "text",
@@ -69,7 +67,7 @@ async function sendToFeishu(text) {
     }
 }
 
-async function sendToDingtalk(content) {
+async function sendToDingtalk(content: string): Promise<boolean | null> {
     if (!fs.existsSync(LAST_DINGTALK_USER_PATH)) return null;
     try {
         const conf = getConfig();
@@ -95,7 +93,7 @@ async function sendToDingtalk(content) {
     }
 }
 
-async function sendToWechat(text) {
+async function sendToWechat(text: string): Promise<any> {
     const auth = getAuth();
     if (!auth || !auth.botToken || !auth.baseUrl) return null;
 
@@ -133,7 +131,7 @@ async function sendToWechat(text) {
         body: JSON.stringify(payload),
     });
 
-    const data = await res.json();
+    const data = await res.json() as any;
     if (data.ret !== undefined && data.ret !== 0) {
         throw new Error(`微信发送失败: ${JSON.stringify(data)}`);
     }
@@ -146,11 +144,11 @@ const rl = readline.createInterface({
     terminal: false,
 });
 
-function sendResponse(response) {
+function sendResponse(response: any): void {
     process.stdout.write(JSON.stringify(response) + "\n");
 }
 
-rl.on("line", async (line) => {
+rl.on("line", async (line: string) => {
     const trimmed = line.trim();
     if (!trimmed) return;
 
@@ -263,8 +261,8 @@ rl.on("line", async (line) => {
                 ].join("\n\n");
 
                 const conf = getConfig();
-                const pushTasks = [];
-                const pushedChannels = [];
+                const pushTasks: Promise<any>[] = [];
+                const pushedChannels: string[] = [];
 
                 if (shouldNotifyChannel(conf, "wechat")) {
                     pushTasks.push(
@@ -303,12 +301,12 @@ rl.on("line", async (line) => {
                         ],
                     },
                 });
-            } catch (err) {
+            } catch (err: any) {
                 sendResponse({
                     jsonrpc: "2.0",
                     id,
                     result: {
-                        content: [{ type: "text", text: `推送失败: ${err.message}` }],
+                        content: [{ type: "text", text: `推送失败: ${err?.message}` }],
                         isError: true,
                     },
                 });
@@ -354,7 +352,7 @@ rl.on("line", async (line) => {
 
                 let optionsText = "";
                 if (options && options.length > 0) {
-                    optionsText = "\n\n备选方案：\n" + options.map((opt, idx) => `[${idx + 1}] ${opt}`).join("\n");
+                    optionsText = "\n\n备选方案：\n" + options.map((opt: any, idx: number) => `[${idx + 1}] ${opt}`).join("\n");
                 }
 
                 const replyGuide = options && options.length > 0
@@ -369,7 +367,7 @@ rl.on("line", async (line) => {
                     `(${timeoutSeconds}s 内有效)`,
                 ].join("\n\n");
 
-                const askTasks = [];
+                const askTasks: Promise<any>[] = [];
                 if (shouldNotifyChannel(conf, "wechat")) {
                     askTasks.push(sendToWechat(wechatContent));
                 }
@@ -403,7 +401,7 @@ rl.on("line", async (line) => {
                             content: [
                                 {
                                     type: "text",
-                                    text: `用户已答复 [#${reqId}]：\n「${userReply}」`,
+                                    text: `收到移动端用户回复: ${userReply}`,
                                 },
                             ],
                         },
@@ -416,18 +414,19 @@ rl.on("line", async (line) => {
                             content: [
                                 {
                                     type: "text",
-                                    text: `等待用户回复超时（#${reqId} 超过 ${timeoutSeconds} 秒无应答）。`,
+                                    text: `等待超时 (${timeoutSeconds}s)，用户未在移动端回复。`,
                                 },
                             ],
+                            isError: true,
                         },
                     });
                 }
-            } catch (err) {
+            } catch (err: any) {
                 sendResponse({
                     jsonrpc: "2.0",
                     id,
                     result: {
-                        content: [{ type: "text", text: `询问失败: ${err.message}` }],
+                        content: [{ type: "text", text: `执行异常: ${err?.message}` }],
                         isError: true,
                     },
                 });

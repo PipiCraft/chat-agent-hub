@@ -4,6 +4,7 @@
 > 将微信、飞书、钉钉连接到本地 AI 编程工具，随时随地通过手机下发编程任务、审批敏感操作、接收进度通知。
 
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.0.0-green.svg)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 
@@ -12,9 +13,18 @@
 ## 核心亮点
 
 - **全通道长连接直连（免公网 IP / 免内网穿透）**：
-  - **微信**：基于 OpenClaw 协议直连，控制台扫码即登，深度解决 PC 微信 CommonMark 换行折叠问题，支持超长输出智能分片。
+  - **微信**：基于 OpenClaw 协议直连，终端扫码即登，深度解决 PC 微信 CommonMark 换行折叠问题，支持超长输出智能分片。
   - **飞书**：官方 WebSocket 长连接直连，独家支持 Interactive Card（富文本交互卡片）一键点击审批与任务切换。
   - **钉钉**：官方 Stream 模式长连接直连，免公网回调，支持 Markdown 消息渲染与请示审批。
+- **现代化 TypeScript 架构与极速构建**：
+  - 基于 **TypeScript 5.x** 全面重写，核心状态流转与通道驱动拥有健全的类型约束与自动补全。
+  - 采用 **tsup** 毫秒级打包与生成声明文件，原生支持 ESM、Shebang 与类型声明导出。
+- **全局与本地双模数据架构**：
+  - **全局 CLI 模式**（`npm i -g chat-agent-hub`）：运行时凭证与状态自动保存在用户主目录 `~/.chat-agent-hub/` 下，安全可靠且升级不丢失配置。
+  - **本地开发模式**：检测到项目根目录配置时优先使用本地数据，开发调试零摩擦。
+- **开箱即用的 `cah` CLI 控制中心**：
+  - 终端输入 `cah` 呼出 `@clack/prompts` 交互式控制面板。
+  - 支持后台守护常驻（`cah start -s`，Windows 零黑窗口，Linux/macOS 守护进程托管）。
 - **多智能体矩阵与开放扩展**：
   - 原生内置支持主流 AI 编程工具：**Claude Code**、**OpenCode**、**Hermes**、**Codex**、**Pi**、**OpenClaw**。
   - 启动自检**仅显示本机实际已就绪的工具**，拒绝未安装项干扰。
@@ -23,100 +33,72 @@
   - **连贯追问保活**：任务完成后在设定的保活窗口（默认 15 分钟）内保持待命，继续发消息自动连贯追问，无需反复新建任务。
   - **空闲自动释放**：超过保活时长无操作，看门狗自动释放任务并清理编号；全部空闲后转入零占用待命态，新需求自动拉起。
 - **人机交互审批（MCP 支持）**：
-  - 智能体执行高危系统命令或技术方案抉择时，通过 MCP 工具主动向手机发起请示并挂起等待。
+  - 智能体执行高危系统命令或技术方案抉择时，通过 `cah mcp` 主动向手机发起请示并挂起等待。
   - 飞书支持卡片按钮一键确认/拒绝；微信与钉钉支持回复数字编号或「同意 101」快速放行。
-- **极简跨平台运维（仅 2 个管理脚本）**：
-  - **Windows (`run.bat`)**：内置控制台模式（扫码/日志）与后台静默模式（**无黑窗口常驻桌面**）；已运行时再次双击按回车即可一键停止。
-  - **Linux / macOS (`run.sh`)**：支持后台守护启动（nohup）、前台运行与一键安全停止。
 - **系统健康度与磁盘自洁**：
   - 手机端回复「状态」，随时掌握服务运行时间（Uptime）、内存占用、当前活动任务。
   - 启动时自动清理超过 14 天的历史日志（`logs/`），长期常驻零垃圾累积。
 
 ---
 
-## 安装与快速上手
+## 快速上手
 
-### 1. 环境准备
-
-- **运行环境**：Node.js >= 18.0.0
-- **系统平台**：Windows 10/11、Linux、macOS
+### 方式一：通过 npm 全局安装（推荐）
 
 ```bash
+# 1. 全局安装 CLI
+npm install -g chat-agent-hub
+
+# 2. 启动交互式配置向导（配置微信/飞书/钉钉凭证）
+cah config
+
+# 3. 启动服务（前台扫码并查看实时日志）
+cah start
+
+# 或直接一键后台静默常驻
+cah start -s
+```
+
+### 方式二：克隆源码本地开发与调试
+
+```bash
+# 1. 克隆代码仓库
 git clone https://github.com/PipiCraft/chat-agent-hub.git
 cd chat-agent-hub
+
+# 2. 安装依赖
 npm install
+
+# 3. 编译 TypeScript 代码
+npm run build
+
+# 4. 注册本地全局软链接（方便在任何终端直接运行 cah 命令）
+npm link
+
+# 5. 启动交互式控制面板
+cah
 ```
 
-### 2. 配置文件
-
-复制模板生成本地 `config.json`（若直接启动，系统也会自动根据模板创建）：
-
-```bash
-cp config.example.json config.json
-```
-
-核心配置示例（按需启用对应通道并填入凭证）：
-
-```json
-{
-  "machineName": "我的工作站",
-  "defaultAgent": "auto",
-  "sessionIdleMinutes": 15,
-  "channels": {
-    "wechat": {
-      "enabled": true
-    },
-    "feishu": {
-      "enabled": false,
-      "appId": "",
-      "appSecret": ""
-    },
-    "dingtalk": {
-      "enabled": false,
-      "clientId": "",
-      "clientSecret": ""
-    }
-  }
-}
-```
-
-> 完整高级配置项（多工作区 `projects`、自定义智能体 `customAgents`、日志清理天数等）可直接参考 [`config.example.json`](config.example.json)。
+> **提示**：本地开发阶段亦可使用 `npm run dev` 或 `npm run cah` 直接执行 TS 源码，改动即生效。
 
 ---
 
-### 3. 服务启停与日常使用
+## `cah` 命令行指引
 
-系统已将多平台运维脚本统一合并为 2 个入口文件：
+全局命令行工具名为 `cah`（同时保留完整别名 `chat-agent-hub`）：
 
-#### Windows 环境（推荐双击交互）：
-- **初次启动 / 扫码登录**：
-  直接双击 `run.bat`，按 **回车** 进入控制台模式，在黑窗口中扫描微信登录二维码；扫码成功后凭证将自动持久化保存在本地。
-- **日常使用（后台静默模式，无黑窗口）**：
-  双击 `run.bat`，输入 **2** 然后回车。服务将在系统后台无感常驻，**启动窗口会立即自动关闭退出，完全不占桌面与任务栏**。
-- **停止服务**：
-  再次双击 `run.bat`，脚本自动检测后台运行中的 PID，直接按 **回车** 即可一键安全停止。
-- **命令行快捷调用（PowerShell 请加 `.\`，CMD 可直接运行）**：
-  ```bash
-  .\run.bat           # 打开交互式菜单 (按 c 可进配置向导)
-  .\run.bat start     # 控制台前台启动
-  .\run.bat start -s  # 后台静默启动（无窗口常驻）
-  .\run.bat stop      # 停止后台服务
-  .\run.bat restart   # 重启服务
-  .\run.bat status    # 查询当前运行状态与 PID
-  .\run.bat config    # 通道配置助手 (交互式添加/修改飞书、钉钉并自动重启)
-  ```
-
-#### Linux / macOS 环境：
-```bash
-./run.sh            # 交互式管理菜单 (输入 c 进配置向导)
-./run.sh start      # 前台控制台模式启动
-./run.sh start -d   # 后台守护模式启动 (nohup)
-./run.sh stop       # 停止后台服务
-./run.sh restart    # 重启服务
-./run.sh status     # 查看运行状态
-./run.sh logs       # 查看最近运行日志
-./run.sh config     # 打开通道配置向导
-```
+| 命令 | 说明 | 示例 |
+| :--- | :--- | :--- |
+| `cah` | 打开交互式终端控制面板（启停、状态、配置） | `cah` |
+| `cah start` | 控制台前台启动（显示二维码、实时输出日志） | `cah start` |
+| `cah start -s` / `-d` | **后台静默守护启动**（系统无感常驻，无多余控制台黑窗口） | `cah start -s` |
+| `cah stop` | 安全停止后台运行的服务 | `cah stop` |
+| `cah restart` | 一键平滑重启后台服务 | `cah restart` |
+| `cah status` | 格式化展示运行状态、PID、通道连接、智能体与活跃任务 | `cah status` |
+| `cah logs [-f] [-n 50]`| 查看运行日志，`-f` 实时追踪，`-n` 指定行数 | `cah logs -f` |
+| `cah config` | 启动交互式通道配置向导（飞书、钉钉、微信、项目路径） | `cah config` |
+| `cah mcp` | 启动 stdio MCP 协议服务端（供 Claude Desktop / Cursor 直连） | `cah mcp` |
+| `cah notify "<msg>"` | 触发跨通道主动推送（支持指定智能体与项目路径） | `cah notify "构建已完成" "Claude Code"` |
 
 ---
 
@@ -144,11 +126,24 @@ cp config.example.json config.json
 
 ## 智能体集成配置 (MCP)
 
-Hub 内置提供兼容 Model Context Protocol 的服务端脚本 `mcp-server.mjs`，为本地 AI 工具提供跨端交互能力：
+Hub 原生提供符合 Model Context Protocol 标准的 stdio 服务端，通过 `cah mcp` 为本地 AI 工具注入跨端交互与审批能力：
 - `notify_agent`：向手机端发送进度汇报或长任务完成通知。
 - `ask_agent`：向手机端发起方案决策或执行审批，挂起等待手机用户答复（支持选项与超时回退）。
 
-可将 `mcp-server.mjs` 作为 stdio MCP 服务直接挂载至任意支持 MCP 的智能体或客户端（如 Claude Code、Codex 等）。
+### 客户端配置示例
+
+在 Claude Desktop 或 Claude Code 的 MCP 配置文件中（如 `claude_desktop_config.json`）：
+
+```json
+{
+  "mcpServers": {
+    "chat-agent-hub": {
+      "command": "cah",
+      "args": ["mcp"]
+    }
+  }
+}
+```
 
 ---
 
@@ -207,12 +202,12 @@ Hub 内置提供兼容 Model Context Protocol 的服务端脚本 `mcp-server.mjs
 
 ---
 
-## 外部脚本通知 (CLI)
+## 外部脚本与 CI 通知
 
-除了智能体自主调用 MCP 外，还可以通过 `notify.mjs` 在外部脚本、自动化部署流程或 Git Hook 中主动推流通知至手机：
+除了智能体自主调用 MCP 外，还可以通过 `cah notify` 在外部脚本、自动化部署流程或 Git Hook 中主动推流通知至手机：
 
 ```bash
-node notify.mjs "构建任务成功完成，耗时 42 秒。" "构建机器人" "./projects/frontend"
+cah notify "项目构建成功完成，耗时 42 秒。" "构建机器人" "./projects/frontend"
 ```
 
 ---

@@ -16,16 +16,18 @@ import {
     getPendingQuestions,
     savePendingQuestions,
     cleanOldLogs,
-} from "./core/state.mjs";
+} from "./core/state.js";
 import {
     detectInstalledAgents,
     resolveDefaultAgent,
     getRunningTask,
-} from "./core/runner.mjs";
-import { handleCommand } from "./core/commands.mjs";
-import { shouldNotifyChannel } from "./channels/common.mjs";
+} from "./core/runner.js";
+import { handleCommand } from "./core/commands.js";
+import type { WechatAuth, ReplyTarget, Instance } from "./types/index.js";
+import path from "node:path";
+import { shouldNotifyChannel } from "./channels/common.js";
 
-import { startWechatChannel, sendWechatReply } from "./channels/wechat.mjs";
+import { startWechatChannel, sendWechatReply } from "./channels/wechat.js";
 import {
     initFeishuChannel,
     sendFeishuReply,
@@ -33,12 +35,12 @@ import {
     sendFeishuTaskListCard,
     sendFeishuAgentListCard,
     sendFeishuOnlineNotice,
-} from "./channels/feishu.mjs";
+} from "./channels/feishu.js";
 import {
     initDingtalkChannel,
     sendDingtalkReply,
     sendDingtalkApprovalCard,
-} from "./channels/dingtalk.mjs";
+} from "./channels/dingtalk.js";
 
 // PID 管理与进程安全退出
 try {
@@ -54,12 +56,12 @@ process.on("exit", cleanupPid);
 process.on("SIGINT", () => { cleanupPid(); process.exit(0); });
 process.on("SIGTERM", () => { cleanupPid(); process.exit(0); });
 
-let currentWechatAuth = null;
+let currentWechatAuth: WechatAuth | null = null;
 
 /**
  * 统一多通道消息回复路由
  */
-async function sendChannelReply(replyTarget, text) {
+async function sendChannelReply(replyTarget: ReplyTarget, text: string): Promise<void> {
     if (!replyTarget) return;
     const { channel, userId, replyContext, contextToken, workDir } = replyTarget;
 
@@ -129,7 +131,7 @@ function checkPendingQuestionsForCards() {
 /**
  * 飞书卡片一键审批回调
  */
-async function handleFeishuApproval({ reqId, decision, userId }) {
+async function handleFeishuApproval({ reqId, decision, userId }: any): Promise<any> {
     const questions = getPendingQuestions();
     const targetQ = questions.find((q) => q.reqId === reqId && !q.answered);
     if (targetQ) {
@@ -146,7 +148,7 @@ async function handleFeishuApproval({ reqId, decision, userId }) {
 /**
  * 飞书交互卡片按钮动作响应
  */
-async function handleFeishuCardAction({ action, payload, userId }) {
+async function handleFeishuCardAction({ action, payload, userId }: any): Promise<any> {
     const instances = getInstances();
     const activeInst = getActiveInstance();
     const detected = detectInstalledAgents();
@@ -273,7 +275,7 @@ function checkIdleTasks() {
 /**
  * 启动智能体调度服务
  */
-async function startBridge() {
+export async function startBridge(): Promise<void> {
     const config = getConfig();
     const machineLabel = (config.machineName && config.machineName.trim()) ? config.machineName.trim() : os.hostname();
 
@@ -304,7 +306,7 @@ async function startBridge() {
 
     let startedChannels = 0;
 
-    const onIncomingMessage = async (msg) => {
+    const onIncomingMessage = async (msg: any) => {
         await handleCommand({
             ...msg,
             sendReply: sendChannelReply,
@@ -326,7 +328,7 @@ async function startBridge() {
                 currentWechatAuth = wechatRes.auth;
                 startedChannels++;
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error("[-] 微信通道启动异常:", err.message);
         }
     }
@@ -352,7 +354,7 @@ async function startBridge() {
                     });
                 } catch {}
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error("[-] 飞书通道启动异常:", err.message);
         }
     }
@@ -368,7 +370,7 @@ async function startBridge() {
             if (dingtalkRes) {
                 startedChannels++;
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error("[-] 钉钉通道启动异常:", err.message);
         }
     }

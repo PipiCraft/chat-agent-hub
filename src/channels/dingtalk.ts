@@ -1,13 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DWClient, TOPIC_ROBOT } from "dingtalk-stream";
-import { ROOT_DIR } from "../core/state.mjs";
+import { LAST_DINGTALK_USER_PATH } from "../core/state.js";
 
-let dwClient = null;
-let lastSessionWebhook = null;
-let lastSenderId = null;
+let dwClient: any = null;
+let lastSessionWebhook: any = null;
+let lastSenderId: any = null;
 
-const LAST_USER_FILE = path.join(ROOT_DIR, "last-dingtalk-user.json");
+const LAST_USER_FILE = LAST_DINGTALK_USER_PATH;
 
 export function getLastDingtalkTarget() {
     if (lastSessionWebhook) return { webhook: lastSessionWebhook, userId: lastSenderId };
@@ -28,7 +28,7 @@ export function getLastDingtalkTarget() {
  * @param {Object} options.config - 钉钉配置 { clientId, clientSecret }
  * @param {Function} options.onMessage - 收到消息回调 ({ channel, userId, text, replyContext })
  */
-export async function initDingtalkChannel({ config, onMessage }) {
+export async function initDingtalkChannel({ config, onMessage }: any) {
     if (!config || !config.clientId || !config.clientSecret) {
         console.warn("[!] 钉钉配置缺失 (clientId 或 clientSecret 未填)，跳过钉钉通道启动。");
         return null;
@@ -41,7 +41,7 @@ export async function initDingtalkChannel({ config, onMessage }) {
         });
 
         // 监听机器人消息接收
-        dwClient.registerCallbackListener(TOPIC_ROBOT, async (res) => {
+        dwClient.registerCallbackListener(TOPIC_ROBOT, async (res: any) => {
             try {
                 // 必须向服务端返回 ACK 响应，避免 60 秒内服务端重试投递
                 dwClient.socketCallBackResponse(res.headers.messageId, { status: "SUCCESS" });
@@ -71,7 +71,7 @@ export async function initDingtalkChannel({ config, onMessage }) {
                         replyContext: { senderId, sessionWebhook, conversationId: data.conversationId },
                     });
                 }
-            } catch (err) {
+            } catch (err: any) {
                 console.error("[-] 钉钉机器人消息处理异常:", err.message);
             }
         });
@@ -79,7 +79,7 @@ export async function initDingtalkChannel({ config, onMessage }) {
         await dwClient.connect();
         console.log("[+] 钉钉长连接接入成功");
         return { client: dwClient };
-    } catch (err) {
+    } catch (err: any) {
         console.error("[-] 钉钉通道启动异常:", err.message);
         return null;
     }
@@ -88,7 +88,7 @@ export async function initDingtalkChannel({ config, onMessage }) {
 /**
  * 向钉钉用户发送消息回复 (优先走 Session Webhook，极速且免鉴权)
  */
-export async function sendDingtalkReply(replyTarget, text) {
+export async function sendDingtalkReply(replyTarget: any, text: any) {
     let webhook = null;
     if (replyTarget && typeof replyTarget === "object" && replyTarget.sessionWebhook) {
         webhook = replyTarget.sessionWebhook;
@@ -123,7 +123,7 @@ export async function sendDingtalkReply(replyTarget, text) {
         if (d.errcode && d.errcode !== 0) {
             throw new Error(`DingTalk error ${d.errcode}: ${d.errmsg}`);
         }
-    } catch (err) {
+    } catch (err: any) {
         // 若 markdown 发送受限，兜底降级为纯文本
         try {
             await fetch(webhook, {
@@ -135,7 +135,7 @@ export async function sendDingtalkReply(replyTarget, text) {
                 }),
                 signal: AbortSignal.timeout(5000),
             });
-        } catch (e) {
+        } catch (e: any) {
             console.error("[-] 发送钉钉消息失败:", e.message);
         }
     }
@@ -144,7 +144,7 @@ export async function sendDingtalkReply(replyTarget, text) {
 /**
  * 向钉钉推送审批请示
  */
-export async function sendDingtalkApprovalCard(replyTarget, { reqId, question, options, projectName, agentName, timeoutSeconds = 300 }) {
+export async function sendDingtalkApprovalCard(replyTarget: any, { reqId, question, options, projectName, agentName, timeoutSeconds = 300 }: any) {
     let optionsText = "";
     if (Array.isArray(options) && options.length > 0) {
         optionsText = "\n\n**可选方案**:\n" + options.map((opt, idx) => `${idx + 1}. ${opt}`).join("\n");

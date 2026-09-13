@@ -1,13 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import * as lark from "@larksuiteoapi/node-sdk";
-import { ROOT_DIR } from "../core/state.mjs";
+import { LAST_FEISHU_USER_PATH } from "../core/state.js";
 
-let larkClient = null;
-let larkWsClient = null;
-let lastKnownTarget = null;
+let larkClient: any = null;
+let larkWsClient: any = null;
+let lastKnownTarget: any = null;
 
-const LAST_USER_FILE = path.join(ROOT_DIR, "last-feishu-user.json");
+const LAST_USER_FILE = LAST_FEISHU_USER_PATH;
 
 export function getLastFeishuTarget() {
     if (lastKnownTarget) return lastKnownTarget;
@@ -27,7 +27,7 @@ export function getLastFeishuTarget() {
     return null;
 }
 
-export function resolveFeishuDestination(target) {
+export function resolveFeishuDestination(target: any) {
     if (!target) {
         const last = getLastFeishuTarget();
         if (last?.chatId) return { receiveIdType: "chat_id", receiveId: last.chatId };
@@ -84,7 +84,7 @@ export function resolveFeishuDestination(target) {
  * @param {Function} options.onMessage - 收到消息回调 ({ channel, userId, text, replyContext })
  * @param {Function} options.onApprovalAction - 收到卡片按钮点击回调 ({ reqId, decision, userId })
  */
-export async function initFeishuChannel({ config, onMessage, onApprovalAction, onCardAction }) {
+export async function initFeishuChannel({ config, onMessage, onApprovalAction, onCardAction }: any) {
     if (!config || !config.appId || !config.appSecret) {
         console.warn("[!] 飞书配置缺失 (appId 或 appSecret 未填)，跳过飞书通道启动。");
         return null;
@@ -133,13 +133,13 @@ export async function initFeishuChannel({ config, onMessage, onApprovalAction, o
                             replyContext: { openId, chatId, messageId: message.message_id },
                         });
                     }
-                } catch (err) {
+                } catch (err: any) {
                     console.error("[-] 飞书消息解析异常:", err.message);
                 }
             },
 
             // 监听富文本交互卡片上的按钮点击动作（一键审批核心！）
-            "card.action.trigger": async (data) => {
+            "card.action.trigger": async (data: any) => {
                 try {
                     const actionVal = data.action?.value || {};
                     const reqId = actionVal.reqId ? parseInt(actionVal.reqId, 10) : null;
@@ -185,7 +185,7 @@ export async function initFeishuChannel({ config, onMessage, onApprovalAction, o
                             content: `已选择: ${decision}`,
                         },
                     };
-                } catch (err) {
+                } catch (err: any) {
                     console.error("[-] 飞书卡片动作处理异常:", err.message);
                     return {
                         toast: {
@@ -200,7 +200,7 @@ export async function initFeishuChannel({ config, onMessage, onApprovalAction, o
         await larkWsClient.start({ eventDispatcher });
         console.log("[+] 飞书长连接接入成功");
         return { client: larkClient, wsClient: larkWsClient };
-    } catch (err) {
+    } catch (err: any) {
         console.error("[-] 飞书通道启动异常:", err.message);
         return null;
     }
@@ -209,7 +209,7 @@ export async function initFeishuChannel({ config, onMessage, onApprovalAction, o
 /**
  * 向飞书用户发送纯文本消息
  */
-export async function sendFeishuReply(target, content) {
+export async function sendFeishuReply(target: any, content: any) {
     if (!larkClient) {
         console.error("[-] 飞书客户端未初始化，无法发送消息");
         return;
@@ -231,7 +231,7 @@ export async function sendFeishuReply(target, content) {
                 content: JSON.stringify({ text: content }),
             },
         });
-    } catch (err) {
+    } catch (err: any) {
         console.error("[-] 发送飞书消息失败:", err.message);
     }
 }
@@ -239,7 +239,7 @@ export async function sendFeishuReply(target, content) {
 /**
  * 向飞书用户发送带交互按钮的多方向/二选一决策卡片
  */
-export async function sendFeishuApprovalCard(target, { reqId, question, options, projectName, agentName, timeoutSeconds = 300 }) {
+export async function sendFeishuApprovalCard(target: any, { reqId, question, options, projectName, agentName, timeoutSeconds = 300 }: any) {
     if (!larkClient) return;
     const dest = resolveFeishuDestination(target);
     if (!dest) return;
@@ -348,7 +348,7 @@ export async function sendFeishuApprovalCard(target, { reqId, question, options,
             },
         });
         console.log(`[+] 已向飞书 [${dest.receiveIdType}:${dest.receiveId}] 推送决策卡片 #${reqId}`);
-    } catch (err) {
+    } catch (err: any) {
         console.error("[-] 推送飞书决策卡片失败:", err.message);
     }
 }
@@ -356,7 +356,7 @@ export async function sendFeishuApprovalCard(target, { reqId, question, options,
 /**
  * 向飞书用户发送任务与项目列表交互卡片
  */
-export async function sendFeishuTaskListCard(target, { instances, activeInst, machineLabel }) {
+export async function sendFeishuTaskListCard(target: any, { instances, activeInst, machineLabel }: any) {
     if (!larkClient) return;
     const dest = resolveFeishuDestination(target);
     if (!dest) return;
@@ -487,7 +487,7 @@ export async function sendFeishuTaskListCard(target, { instances, activeInst, ma
             },
         });
         console.log(`[+] 已向飞书 [${dest.receiveIdType}:${dest.receiveId}] 推送任务列表交互卡片`);
-    } catch (err) {
+    } catch (err: any) {
         console.error("[-] 推送飞书任务列表卡片失败:", err.message);
     }
 }
@@ -495,7 +495,7 @@ export async function sendFeishuTaskListCard(target, { instances, activeInst, ma
 /**
  * 向飞书用户发送本机智能体选择与切换卡片
  */
-export async function sendFeishuAgentListCard(target, { detectedAgents, defAgent, activeInst, machineLabel }) {
+export async function sendFeishuAgentListCard(target: any, { detectedAgents, defAgent, activeInst, machineLabel }: any) {
     if (!larkClient) return;
     const dest = resolveFeishuDestination(target);
     if (!dest) return;
@@ -520,7 +520,7 @@ export async function sendFeishuAgentListCard(target, { detectedAgents, defAgent
                 },
             });
         } else {
-            detectedAgents.forEach((agent, idx) => {
+            detectedAgents.forEach((agent: any, idx: number) => {
                 const isGlobalDef = agent.key === defAgent.key;
                 const isCurrentActive = agent.key === activeInst.agentKey;
                 let tag = "";
@@ -575,7 +575,7 @@ export async function sendFeishuAgentListCard(target, { detectedAgents, defAgent
             },
         });
         console.log(`[+] 已向飞书 [${dest.receiveIdType}:${dest.receiveId}] 推送智能体选择交互卡片`);
-    } catch (err) {
+    } catch (err: any) {
         console.error("[-] 推送飞书智能体卡片失败:", err.message);
     }
 }
@@ -583,7 +583,7 @@ export async function sendFeishuAgentListCard(target, { detectedAgents, defAgent
 /**
  * 中枢首次启动/连接就绪时向飞书推送环境卡片
  */
-export async function sendFeishuOnlineNotice(target, { machineLabel, defAgent, workDir }) {
+export async function sendFeishuOnlineNotice(target: any, { machineLabel, defAgent, workDir }: any) {
     if (!larkClient) return;
     const dest = resolveFeishuDestination(target);
     if (!dest) return;
@@ -639,7 +639,7 @@ export async function sendFeishuOnlineNotice(target, { machineLabel, defAgent, w
             },
         });
         console.log(`[+] 已向飞书 [${dest.receiveIdType}:${dest.receiveId}] 推送上线就绪通知卡片`);
-    } catch (err) {
+    } catch (err: any) {
         console.error("[-] 推送飞书上线通知失败:", err.message);
     }
 }

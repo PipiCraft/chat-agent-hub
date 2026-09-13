@@ -1,23 +1,61 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
+import type { Config, Instance, ActiveFocus, PendingQuestion, SourceType } from "../types/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const ROOT_DIR = path.resolve(__dirname, "..");
 
-export const CONFIG_PATH = path.join(ROOT_DIR, "config.json");
+function findPackageRoot(startDir: string): string {
+    let cur = startDir;
+    while (cur && cur !== path.dirname(cur)) {
+        if (fs.existsSync(path.join(cur, "package.json"))) {
+            return cur;
+        }
+        cur = path.dirname(cur);
+    }
+    return path.resolve(startDir, "..");
+}
+
+export const ROOT_DIR = findPackageRoot(__dirname);
 export const CONFIG_EXAMPLE_PATH = path.join(ROOT_DIR, "config.example.json");
-export const AUTH_PATH = path.join(ROOT_DIR, "auth.json");
-export const SYNC_PATH = path.join(ROOT_DIR, "sync.buf");
-export const LOGS_DIR = path.join(ROOT_DIR, "logs");
-export const INSTANCES_PATH = path.join(ROOT_DIR, "instances.json");
-export const ACTIVE_FOCUS_PATH = path.join(ROOT_DIR, "active-focus.json");
-export const PENDING_QUESTIONS_PATH = path.join(ROOT_DIR, "pending-questions.json");
-export const WORKSPACE_DIR = path.join(ROOT_DIR, "workspace");
-export const PID_PATH = path.join(ROOT_DIR, "bridge.pid");
+
+/**
+ * 决定数据持久化目录:
+ * 1. 显式环境变量 CHAT_AGENT_HUB_HOME 优先级最高
+ * 2. 如果在项目源码目录开发调试 (ROOT_DIR 不在 node_modules 中且存在 config.json)，使用本地源码目录保持向下兼容
+ * 3. 否则 (作为全局 npm 包安装时)，存放在用户主目录 ~/.chat-agent-hub
+ */
+function resolveDataDir(): string {
+    if (process.env.CHAT_AGENT_HUB_HOME) {
+        return path.resolve(process.env.CHAT_AGENT_HUB_HOME);
+    }
+    const isInsideNodeModules = ROOT_DIR.includes("node_modules");
+    const hasLocalConfig = fs.existsSync(path.join(ROOT_DIR, "config.json"));
+    if (!isInsideNodeModules && hasLocalConfig) {
+        return ROOT_DIR;
+    }
+    return path.join(os.homedir(), ".chat-agent-hub");
+}
+
+export const DATA_DIR = resolveDataDir();
+export const CONFIG_PATH = path.join(DATA_DIR, "config.json");
+export const AUTH_PATH = path.join(DATA_DIR, "auth.json");
+export const SYNC_PATH = path.join(DATA_DIR, "sync.buf");
+export const LOGS_DIR = path.join(DATA_DIR, "logs");
+export const INSTANCES_PATH = path.join(DATA_DIR, "instances.json");
+export const ACTIVE_FOCUS_PATH = path.join(DATA_DIR, "active-focus.json");
+export const PENDING_QUESTIONS_PATH = path.join(DATA_DIR, "pending-questions.json");
+export const WORKSPACE_DIR = path.join(DATA_DIR, "workspace");
+export const PID_PATH = path.join(DATA_DIR, "bridge.pid");
+export const LAST_FEISHU_USER_PATH = path.join(DATA_DIR, "last-feishu-user.json");
+export const LAST_DINGTALK_USER_PATH = path.join(DATA_DIR, "last-dingtalk-user.json");
 
 // 确保基础目录存在
+if (!fs.existsSync(DATA_DIR)) {
+    try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
+}
 if (!fs.existsSync(WORKSPACE_DIR)) {
     try { fs.mkdirSync(WORKSPACE_DIR, { recursive: true }); } catch {}
 }
@@ -28,8 +66,8 @@ if (!fs.existsSync(LOGS_DIR)) {
 /**
  * 读取当前配置 (每次动态读取或更新)
  */
-export function getConfig() {
-    let conf = {
+export function getConfig(): Config {
+    let conf: Config = {
         machineName: "",
         defaultAgent: "auto",
         sessionIdleMinutes: 15,
@@ -55,7 +93,7 @@ export function getConfig() {
     }
 
     if (conf.workDir) {
-        conf.workDir = path.resolve(ROOT_DIR, conf.workDir);
+        conf.workDir = path.resolve(DATA_DIR, conf.workDir);
     } else {
         conf.workDir = WORKSPACE_DIR;
     }
@@ -63,7 +101,7 @@ export function getConfig() {
     if (Array.isArray(conf.projects)) {
         conf.projects = conf.projects.map((p) => ({
             ...p,
-            path: path.resolve(ROOT_DIR, p.path),
+            path: path.resolve(DATA_DIR, p.path),
         }));
     } else {
         conf.projects = [{ name: "默认工作区", path: conf.workDir }];
@@ -72,12 +110,12 @@ export function getConfig() {
     return conf;
 }
 
-export function saveConfig(conf) {
+export function saveConfig(conf: Config): boolean {
     try {
         fs.writeFileSync(CONFIG_PATH, JSON.stringify(conf, null, 2), "utf-8");
         return true;
-    } catch (e) {
-        console.error("[-] 保存配置失败:", e.message);
+    } catch (e: any) {
+        console.error("[-] 保存配置失败:", e?.message);
         return false;
     }
 }
@@ -85,7 +123,7 @@ export function saveConfig(conf) {
 /**
  * 任务与实例管理
  */
-export function getInstances() {
+export function getInstances(): Instance[] {
     if (fs.existsSync(INSTANCES_PATH)) {
         try {
             const list = JSON.parse(fs.readFileSync(INSTANCES_PATH, "utf-8"));
@@ -95,30 +133,35 @@ export function getInstances() {
     return [];
 }
 
-export function saveInstances(instances) {
+export function saveInstances(instances: Instance[]): boolean {
     try {
         fs.writeFileSync(INSTANCES_PATH, JSON.stringify(instances, null, 2), "utf-8");
         return true;
-    } catch (e) {
-        console.error("[-] 保存实例失败:", e.message);
+    } catch (e: any) {
+        console.error("[-] 保存实例失败:", e?.message);
         return false;
     }
 }
 
-export function getActiveInstance(autoCreate = true) {
+export function getActiveInstance(autoCreate: false): Instance | null;
+export function getActiveInstance(autoCreate?: true): Instance;
+export function getActiveInstance(autoCreate?: boolean): Instance | null;
+export function getActiveInstance(autoCreate: boolean = true): Instance | null {
     const instances = getInstances();
     if (instances.length === 0) {
         if (!autoCreate) return null;
         const conf = getConfig();
         const defAgentKey = conf.defaultAgent === "auto" ? "claude" : conf.defaultAgent;
         const defAgentName = conf.defaultAgent === "auto" ? "Claude Code" : conf.defaultAgent;
-        const defInst = {
+        const defInst: Instance = {
             id: "default-task",
             num: 1,
             agentKey: defAgentKey,
             agentName: defAgentName,
             projectName: "默认工作区",
             workDir: conf.workDir,
+            source: "bridge",
+            sourceLabel: "[本地]",
             sessionId: crypto.randomUUID(),
             turnCount: 0,
             active: true,
@@ -130,7 +173,6 @@ export function getActiveInstance(autoCreate = true) {
         return defInst;
     }
 
-    // 优先读取标记为 active 的任务，或 active-focus.json 记录的任务
     let active = instances.find((i) => i.active);
     if (!active && fs.existsSync(ACTIVE_FOCUS_PATH)) {
         try {
@@ -148,7 +190,7 @@ export function getActiveInstance(autoCreate = true) {
     return active;
 }
 
-export function saveActiveFocus(inst) {
+export function saveActiveFocus(inst: Instance | null): void {
     if (!inst) {
         try {
             if (fs.existsSync(ACTIVE_FOCUS_PATH)) fs.unlinkSync(ACTIVE_FOCUS_PATH);
@@ -156,7 +198,7 @@ export function saveActiveFocus(inst) {
         return;
     }
     try {
-        const focus = {
+        const focus: ActiveFocus = {
             instanceId: inst.id,
             num: inst.num,
             agentKey: inst.agentKey,
@@ -170,9 +212,11 @@ export function saveActiveFocus(inst) {
     } catch {}
 }
 
-export function setActiveInstance(inst) {
+export function setActiveInstance(inst: Partial<Instance> & { id?: string; num?: number }): Instance {
     const instances = getInstances();
     let found = false;
+    let targetInst: Instance | null = null;
+
     for (const i of instances) {
         if (i.id === inst.id || i.num === inst.num) {
             i.active = true;
@@ -183,24 +227,44 @@ export function setActiveInstance(inst) {
             i.turnCount = inst.turnCount ?? i.turnCount;
             i.lastActiveAt = Date.now();
             found = true;
+            targetInst = i;
         } else {
             i.active = false;
         }
     }
-    if (!found) {
-        inst.active = true;
-        inst.lastActiveAt = Date.now();
-        instances.push(inst);
+
+    if (!found || !targetInst) {
+        const newInst: Instance = {
+            id: inst.id || `task-${Date.now()}`,
+            num: inst.num || (instances.length > 0 ? Math.max(...instances.map((i) => i.num || 0)) + 1 : 1),
+            agentKey: inst.agentKey || "claude",
+            agentName: inst.agentName || "Claude Code",
+            projectName: inst.projectName || "工作区",
+            workDir: inst.workDir || WORKSPACE_DIR,
+            source: inst.source || "bridge",
+            sourceLabel: inst.sourceLabel || "[本地]",
+            sessionId: inst.sessionId || crypto.randomUUID(),
+            turnCount: inst.turnCount || 0,
+            active: true,
+            createdAt: Date.now(),
+            lastActiveAt: Date.now(),
+        };
+        instances.push(newInst);
+        targetInst = newInst;
     }
+
     saveInstances(instances);
-    saveActiveFocus(inst);
-    return inst;
+    saveActiveFocus(targetInst);
+    return targetInst;
 }
 
-/**
- * 统一注册或更新实例（MCP、CLI、Bridge 通用）
- */
-export function registerOrUpdateInstance(agentKey, agentName, workDir, customProjectName, source = "desktop") {
+export function registerOrUpdateInstance(
+    agentKey: string,
+    agentName: string,
+    workDir?: string,
+    customProjectName?: string,
+    source: SourceType = "desktop"
+): Instance {
     const instances = getInstances();
     const resolvedDir = path.resolve(workDir || process.cwd());
     const projName = customProjectName || path.basename(resolvedDir) || "项目";
@@ -243,29 +307,29 @@ export function registerOrUpdateInstance(agentKey, agentName, workDir, customPro
 /**
  * 人机审批决策题库管理
  */
-export function getPendingQuestions() {
+export function getPendingQuestions(): PendingQuestion[] {
     if (fs.existsSync(PENDING_QUESTIONS_PATH)) {
         try {
             const list = JSON.parse(fs.readFileSync(PENDING_QUESTIONS_PATH, "utf-8"));
             if (Array.isArray(list)) {
-                return list.filter((q) => Date.now() - q.createdAt < (q.timeoutMs || 300000));
+                return list.filter((q: PendingQuestion) => Date.now() - q.createdAt < (q.timeoutMs || 300000));
             }
         } catch {}
     }
     return [];
 }
 
-export function savePendingQuestions(questions) {
+export function savePendingQuestions(questions: PendingQuestion[]): boolean {
     try {
         fs.writeFileSync(PENDING_QUESTIONS_PATH, JSON.stringify(questions, null, 2), "utf-8");
         return true;
-    } catch (e) {
-        console.error("[-] 保存待确认问题失败:", e.message);
+    } catch (e: any) {
+        console.error("[-] 保存待确认问题失败:", e?.message);
         return false;
     }
 }
 
-export function allocateReqId() {
+export function allocateReqId(): number {
     const questions = getPendingQuestions();
     const used = new Set(questions.map((q) => q.reqId));
     let reqId = 101;
@@ -278,7 +342,7 @@ export function allocateReqId() {
 /**
  * 历史执行记录持久化
  */
-export function appendHistoryLog(user, prompt, output, workDir, turnCount = 1) {
+export function appendHistoryLog(user: string, prompt: string, output: string, workDir: string, turnCount: number = 1): void {
     try {
         if (!fs.existsSync(LOGS_DIR)) {
             fs.mkdirSync(LOGS_DIR, { recursive: true });
@@ -305,15 +369,15 @@ export function appendHistoryLog(user, prompt, output, workDir, turnCount = 1) {
         ].join("\n");
 
         fs.appendFileSync(logFile, entry + "\n", "utf-8");
-    } catch (err) {
-        console.error("[-] 写入日志失败:", err.message);
+    } catch (err: any) {
+        console.error("[-] 写入日志失败:", err?.message);
     }
 }
 
 /**
  * 自动清理过期历史日志 (默认保留 14 天)
  */
-export function cleanOldLogs(retentionDays = 14) {
+export function cleanOldLogs(retentionDays: number = 14): void {
     try {
         if (!fs.existsSync(LOGS_DIR)) return;
         const now = Date.now();
@@ -331,8 +395,7 @@ export function cleanOldLogs(retentionDays = 14) {
                 }
             } catch {}
         }
-    } catch (err) {
-        console.error("[-] 清理历史日志失败:", err.message);
+    } catch (err: any) {
+        console.error("[-] 清理历史日志失败:", err?.message);
     }
 }
-

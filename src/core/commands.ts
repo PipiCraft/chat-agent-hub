@@ -13,7 +13,7 @@ import {
     getPendingQuestions,
     savePendingQuestions,
     appendHistoryLog,
-} from "./state.mjs";
+} from "./state.js";
 import {
     detectInstalledAgents,
     resolveDefaultAgent,
@@ -21,13 +21,25 @@ import {
     getRecentTaskLogs,
     stopCurrentTask,
     executeByAgent,
-} from "./runner.mjs";
-import { getGitSummary, getGitFullDiff } from "./git.mjs";
+} from "./runner.js";
+import { getGitSummary, getGitFullDiff } from "./git.js";
 import {
     normalizeChannelName,
     getChannelDisplayName,
     getChannelNotifyStatus,
-} from "../channels/common.mjs";
+} from "../channels/common.js";
+import type { ReplyTarget } from "../types/index.js";
+
+export interface HandleCommandParams {
+    channel: string;
+    userId: string;
+    text: string;
+    replyContext?: any;
+    contextToken?: string;
+    sendReply: (target: ReplyTarget, text: string) => Promise<any>;
+    sendFeishuTaskList?: (target: any, options?: any) => Promise<any>;
+    sendFeishuAgentList?: (target: any, options?: any) => Promise<any>;
+}
 
 export const HELP_MENU = `指令列表
 ━━━━━━━━━━━━━━
@@ -53,7 +65,7 @@ export const HELP_MENU = `指令列表
 
 直接发送文字将自动交由当前任务执行。`;
 
-function formatUptime(sec) {
+function formatUptime(sec: number): string {
     const s = Math.floor(sec);
     const days = Math.floor(s / 86400);
     const hours = Math.floor((s % 86400) / 3600);
@@ -79,10 +91,10 @@ export async function handleCommand({
     sendReply,
     sendFeishuTaskList,
     sendFeishuAgentList,
-}) {
+}: HandleCommandParams): Promise<void> {
     const config = getConfig();
     const currentInst = getActiveInstance(false);
-    const replyTarget = {
+    const replyTarget: ReplyTarget = {
         channel,
         userId,
         replyContext,
@@ -261,14 +273,14 @@ export async function handleCommand({
     if (channelCmdMatch) {
         const lower = rawText.toLowerCase();
         if (lower.includes("飞书")) {
-            const reply = `【添加飞书通道指引】\n━━━━━━━━━━━━━━\n1. 访问飞书开放平台 (open.feishu.cn) 创建自建应用并添加「机器人」能力\n2. 开通权限: 在「权限管理」开通 im:message (收发消息)\n3. 事件订阅: 在「事件与回调」选择长连接 (WebSocket)，添加事件 im.message.receive_v1\n4. 快捷接入:\n   电脑终端运行: .\\run.bat config (选 1 输入 App ID 与 Secret 自动重启生效)\n   或直接在 config.json 的 channels.feishu 填入。`;
+            const reply = `【添加飞书通道指引】\n━━━━━━━━━━━━━━\n1. 访问飞书开放平台 (open.feishu.cn) 创建自建应用并添加「机器人」能力\n2. 开通权限: 在「权限管理」开通 im:message (收发消息)\n3. 事件订阅: 在「事件与回调」选择长连接 (WebSocket)，添加事件 im.message.receive_v1\n4. 快捷接入:\n   电脑终端运行: cah config (选 1 输入 App ID 与 Secret 自动重启生效)\n   或直接在 config.json 的 channels.feishu 填入。`;
             appendHistoryLog(userId, rawText, reply, config.workDir, 0);
             await sendReply(replyTarget, reply);
             return;
         }
 
         if (lower.includes("钉钉")) {
-            const reply = `【添加钉钉通道指引】\n━━━━━━━━━━━━━━\n1. 访问钉钉开发者后台 (open-dev.dingtalk.com) 创建应用并添加「机器人」能力\n2. 模式选择: 消息接收模式设为 Stream 模式并保存发布\n3. 快捷接入:\n   电脑终端运行: .\\run.bat config (选 2 输入 Client ID 与 Secret 自动重启生效)\n   或直接在 config.json 的 channels.dingtalk 填入。`;
+            const reply = `【添加钉钉通道指引】\n━━━━━━━━━━━━━━\n1. 访问钉钉开发者后台 (open-dev.dingtalk.com) 创建应用并添加「机器人」能力\n2. 模式选择: 消息接收模式设为 Stream 模式并保存发布\n3. 快捷接入:\n   电脑终端运行: cah config (选 2 输入 Client ID 与 Secret 自动重启生效)\n   或直接在 config.json 的 channels.dingtalk 填入。`;
             appendHistoryLog(userId, rawText, reply, config.workDir, 0);
             await sendReply(replyTarget, reply);
             return;
@@ -283,7 +295,7 @@ export async function handleCommand({
         reply += `• 微信: [${wechatOn ? "已启用" : "未启用"}]\n`;
         reply += `• 飞书: [${feishuOn ? "已启用" : "未启用"}]\n`;
         reply += `• 钉钉: [${dingtalkOn ? "已启用" : "未启用"}]\n\n`;
-        reply += `[如何添加新通道]\n• 电脑终端推荐: .\\run.bat config (向导交互配置并自动重启)\n• 或手机回复「添加飞书」/「添加钉钉」查看具体操作步骤。`;
+        reply += `[如何添加新通道]\n• 电脑终端推荐: cah config (向导交互配置并自动重启)\n• 或手机回复「添加飞书」/「添加钉钉」查看具体操作步骤。`;
 
         appendHistoryLog(userId, rawText, reply, config.workDir, 0);
         await sendReply(replyTarget, reply);
@@ -345,17 +357,17 @@ export async function handleCommand({
         const detected = detectInstalledAgents();
         const instances = getInstances();
 
-        let customName = null;
+        let customName: string | null = null;
         let targetAgentKey = activeInst.agentKey;
         let targetAgentName = activeInst.agentName;
         let targetDir = activeInst.workDir;
 
         if (argStr) {
             const tokens = argStr.split(/\s+/);
-            tokens.forEach((token) => {
+            tokens.forEach((token: string) => {
                 const clean = token.replace(/^["']|["']$/g, "").trim();
                 const matchedAgent = detected.find(
-                    (a) => a.key === clean.toLowerCase() || a.aliases.includes(clean.toLowerCase())
+                    (a) => a.key === clean.toLowerCase() || (a.aliases && a.aliases.includes(clean.toLowerCase()))
                 );
                 if (matchedAgent) {
                     targetAgentKey = matchedAgent.key;
@@ -462,8 +474,8 @@ export async function handleCommand({
         if (!isNaN(num)) {
             targetAgent = available[num - 1];
         } else {
-            targetAgent = available.find((a) => a.key === target || a.aliases.includes(target) || a.name.toLowerCase().includes(target))
-                || detected.find((a) => a.key === target || a.aliases.includes(target) || a.name.toLowerCase().includes(target));
+            targetAgent = available.find((a) => a.key === target || (a.aliases && a.aliases.includes(target)) || a.name.toLowerCase().includes(target))
+                || detected.find((a) => a.key === target || (a.aliases && a.aliases.includes(target)) || a.name.toLowerCase().includes(target));
         }
 
         if (!targetAgent) {
@@ -493,8 +505,8 @@ export async function handleCommand({
         if (!isNaN(num)) {
             targetAgent = available[num - 1];
         } else {
-            targetAgent = available.find((a) => a.key === target || a.aliases.includes(target) || a.name.toLowerCase().includes(target))
-                || detected.find((a) => a.key === target || a.aliases.includes(target) || a.name.toLowerCase().includes(target));
+            targetAgent = available.find((a) => a.key === target || (a.aliases && a.aliases.includes(target)) || a.name.toLowerCase().includes(target))
+                || detected.find((a) => a.key === target || (a.aliases && a.aliases.includes(target)) || a.name.toLowerCase().includes(target));
         }
 
         if (!targetAgent) {
@@ -582,11 +594,11 @@ export async function handleCommand({
         if (!rawArg) {
             let currentTargetDesc = "全部已启用渠道 (默认)";
             if (Array.isArray(config.notifyChannels) && config.notifyChannels.length > 0) {
-                if (!config.notifyChannels.map(normalizeChannelName).includes("all")) {
-                    currentTargetDesc = config.notifyChannels.map(normalizeChannelName).map(getChannelDisplayName).join("、");
+                if (!config.notifyChannels.map((c) => normalizeChannelName(c)).includes("all")) {
+                    currentTargetDesc = config.notifyChannels.map((c) => normalizeChannelName(c)).filter((c): c is string => Boolean(c)).map(getChannelDisplayName).join("、");
                 }
             } else if (typeof config.notifyChannels === "string" && normalizeChannelName(config.notifyChannels) !== "all") {
-                currentTargetDesc = getChannelDisplayName(normalizeChannelName(config.notifyChannels));
+                currentTargetDesc = getChannelDisplayName(normalizeChannelName(config.notifyChannels) || 'all');
             }
 
             let reply = `[本地任务推送通道] · ${machineLabel}\n━━━━━━━━━━━━━━\n当前配置: ${currentTargetDesc}\n\n通道状态:\n`;
@@ -601,7 +613,7 @@ export async function handleCommand({
         }
 
         const tokens = rawArg.split(/[,，\s]+/).filter(Boolean);
-        let newChannels = [];
+        let newChannels: string[] = [];
         let isAll = false;
 
         for (const token of tokens) {
@@ -610,7 +622,7 @@ export async function handleCommand({
                 isAll = true;
                 break;
             }
-            if (["wechat", "feishu", "dingtalk"].includes(normalized)) {
+            if (normalized && ["wechat", "feishu", "dingtalk"].includes(normalized)) {
                 if (!newChannels.includes(normalized)) {
                     newChannels.push(normalized);
                 }
@@ -682,7 +694,7 @@ export async function handleCommand({
                 `[${activeInst.num}:${activeInst.projectName}]\n\n${output}${gitSummaryText}`
             );
         } catch (err) {
-            await sendReply(replyTarget, `执行出错: ${err.message}`);
+            await sendReply(replyTarget, `执行出错: ${(err as any)?.message}`);
         }
     })();
 }

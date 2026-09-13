@@ -23,6 +23,7 @@ workspace/*
 
 # 依赖与临时文件
 node_modules/
+dist/
 npm-debug.log*
 yarn-debug.log*
 .pnpm-debug.log*

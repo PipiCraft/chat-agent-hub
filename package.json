@@ -1,12 +1,28 @@
 {
   "name": "chat-agent-hub",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Multi-channel Chat Agent Hub connecting WeChat, Feishu, and DingTalk to AI coding agents (Claude Code, OpenCode, Hermes, Codex, Pi, OpenClaw)",
-  "main": "bridge.mjs",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "cah": "dist/cli.js",
+    "chat-agent-hub": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "config.example.json",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "start": "node bridge.mjs",
-    "test": "node --check bridge.mjs && node --check mcp-server.mjs && node --check notify.mjs && node --check core/state.mjs && node --check core/runner.mjs && node --check core/commands.mjs && node --check core/git.mjs && node --check core/wizard.mjs && node --check channels/common.mjs && node --check channels/wechat.mjs && node --check channels/feishu.mjs && node --check channels/dingtalk.mjs",
-    "notify": "node notify.mjs"
+    "build": "tsup",
+    "prepack": "npm run build",
+    "dev": "tsx src/bin/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc --noEmit && tsup",
+    "start": "node dist/bridge.js",
+    "cah": "tsx src/bin/cli.ts"
   },
   "keywords": [
     "ai",
@@ -21,11 +37,29 @@
   ],
   "author": "",
   "license": "MIT",
-  "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PipiCraft/chat-agent-hub.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PipiCraft/chat-agent-hub/issues"
+  },
+  "homepage": "https://github.com/PipiCraft/chat-agent-hub#readme",
+  "type": "module",
   "dependencies": {
+    "@clack/prompts": "^1.8.0",
     "@larksuiteoapi/node-sdk": "^1.73.3",
     "@tencent-weixin/openclaw-weixin": "^2.4.8",
+    "cac": "^7.0.0",
     "dingtalk-stream": "^2.1.6-beta.1",
+    "picocolors": "^1.1.1",
     "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.1",
+    "@types/qrcode-terminal": "^0.12.2",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.13",
+    "typescript": "^5.7.3"
   }
 }

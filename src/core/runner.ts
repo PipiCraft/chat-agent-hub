@@ -1,7 +1,26 @@
-import { spawn, execSync } from "node:child_process";
-import { getConfig } from "./state.mjs";
+import { spawn, execSync, type ChildProcess } from "node:child_process";
+import { getConfig } from "./state.js";
+import type { Config, InstalledAgentInfo } from "../types/index.js";
 
-export const BUILTIN_AGENTS = [
+export interface AgentDefinition {
+    key: string;
+    name: string;
+    aliases: string[];
+    custom?: boolean;
+    getCmd?: () => string;
+    getArgs: (prompt: string, session?: any, workDir?: string) => string[];
+}
+
+export interface RunningTaskInfo {
+    agentKey: string;
+    agentName: string;
+    projectName?: string;
+    workDir: string;
+    prompt: string;
+    startTime: number;
+}
+
+export const BUILTIN_AGENTS: AgentDefinition[] = [
     {
         key: "claude",
         name: "Claude Code",
@@ -53,21 +72,21 @@ export const BUILTIN_AGENTS = [
 /**
  * 获取所有支持的智能体（内置智能体 + config.json 自定义智能体，同 key 自定义优先覆盖）
  */
-export function getAllSupportedAgents() {
-    let customList = [];
+export function getAllSupportedAgents(): AgentDefinition[] {
+    let customList: any[] = [];
     try {
-        const config = getConfig();
+        const config: any = getConfig();
         if (Array.isArray(config?.customAgents)) {
             customList = config.customAgents;
         }
     } catch {}
 
-    const parsedCustom = customList
+    const parsedCustom = (customList
         .map((c) => {
             const key = (c.key || "").trim().toLowerCase();
             if (!key) return null;
             const name = c.name || key;
-            const aliases = Array.isArray(c.aliases) ? c.aliases.map((a) => a.toLowerCase()) : [key];
+            const aliases = Array.isArray(c.aliases) ? c.aliases.map((a: string) => a.toLowerCase()) : [key];
             const rawCmd = c.cmd || key;
             const argTemplate = Array.isArray(c.args) ? c.args : ["{prompt}"];
 
@@ -82,8 +101,8 @@ export function getAllSupportedAgents() {
                     }
                     return rawCmd;
                 },
-                getArgs: (prompt, session, workDir) => {
-                    return argTemplate.map((item) =>
+                getArgs: (prompt: string, session?: any, workDir?: string) => {
+                    return argTemplate.map((item: string) =>
                         String(item)
                             .replace(/\{prompt\}/g, prompt)
                             .replace(/\{workDir\}/g, workDir || "")
@@ -91,28 +110,28 @@ export function getAllSupportedAgents() {
                     );
                 },
             };
-        })
-        .filter(Boolean);
+        }) as (AgentDefinition | null)[])
+        .filter((item): item is AgentDefinition => item !== null);
 
     const customKeys = new Set(parsedCustom.map((a) => a.key));
     const filteredBuiltins = BUILTIN_AGENTS.filter((a) => !customKeys.has(a.key));
     return [...filteredBuiltins, ...parsedCustom];
 }
 
-let currentRunningProcess = null;
-let currentRunningTask = null;
+let currentRunningProcess: ChildProcess | null = null;
+let currentRunningTask: RunningTaskInfo | null = null;
 let isTaskCancelled = false;
-let recentTaskLogs = [];
+let recentTaskLogs: string[] = [];
 
-export function getRunningTask() {
+export function getRunningTask(): RunningTaskInfo | null {
     return currentRunningTask;
 }
 
-export function getRecentTaskLogs() {
+export function getRecentTaskLogs(): string {
     return recentTaskLogs.slice(-30).join("");
 }
 
-export function appendTaskLog(chunk) {
+export function appendTaskLog(chunk: string | Buffer): void {
     const text = typeof chunk === "string" ? chunk : chunk.toString("utf-8");
     recentTaskLogs.push(text);
     if (recentTaskLogs.length > 200) {
@@ -123,7 +142,7 @@ export function appendTaskLog(chunk) {
 /**
  * 检查命令是否在当前系统 PATH 中可用
  */
-export function checkCmdAvailable(cmd) {
+export function checkCmdAvailable(cmd: string): boolean {
     try {
         const tool = process.platform === "win32" ? "where" : "which";
         execSync(`${tool} ${cmd}`, { stdio: "ignore", timeout: 1500 });
@@ -136,7 +155,7 @@ export function checkCmdAvailable(cmd) {
 /**
  * 探测本机已安装的智能体（支持内置 + 自定义）
  */
-export function detectInstalledAgents() {
+export function detectInstalledAgents(): InstalledAgentInfo[] {
     const all = getAllSupportedAgents();
     return all.map((agent) => {
         let isInstalled = false;
@@ -159,36 +178,36 @@ export function detectInstalledAgents() {
 /**
  * 解析当前配置应使用的默认智能体
  */
-export function resolveDefaultAgent(cfg) {
+export function resolveDefaultAgent(cfg?: Config): InstalledAgentInfo {
     const detected = detectInstalledAgents();
     const targetKey = (cfg?.defaultAgent || "auto").trim().toLowerCase();
 
     if (targetKey !== "auto") {
-        const matched = detected.find((a) => a.key === targetKey || a.aliases.includes(targetKey));
+        const matched = detected.find((a) => a.key === targetKey || (a as any).aliases?.includes(targetKey));
         if (matched) return matched;
     }
 
     const firstInstalled = detected.find((a) => a.installed);
     if (firstInstalled) return firstInstalled;
 
-    return detected[0] || { key: "claude", name: "Claude Code", installed: false, aliases: ["cc", "claude"] };
+    return detected[0] || { key: "claude", name: "Claude Code", installed: false };
 }
 
 /**
  * 终止当前正在运行的任务进程树
  */
-export function stopCurrentTask() {
+export function stopCurrentTask(): { success: boolean; message: string } {
     if (!currentRunningProcess || !currentRunningTask) {
         return { success: false, message: "当前没有正在执行的任务。" };
     }
 
-    const targetInfo = `[${currentRunningTask.projectName}] ${currentRunningTask.agentName}`;
+    const targetInfo = `[${currentRunningTask.projectName || "任务"}] ${currentRunningTask.agentName}`;
     isTaskCancelled = true;
 
     try {
         if (process.platform === "win32") {
             spawn("taskkill", ["/pid", String(currentRunningProcess.pid), "/f", "/t"]);
-        } else {
+        } else if (currentRunningProcess.pid) {
             process.kill(-currentRunningProcess.pid, "SIGKILL");
         }
     } catch (e) {
@@ -202,7 +221,7 @@ export function stopCurrentTask() {
 /**
  * 执行指定智能体任务
  */
-export function executeByAgent(agentKey, prompt, workDir, session = {}) {
+export function executeByAgent(agentKey: string, prompt: string, workDir: string, session: any = {}): Promise<string> {
     return new Promise((resolve) => {
         const allAgents = getAllSupportedAgents();
         const agent = allAgents.find((a) => a.key === agentKey) || allAgents[0];
@@ -210,7 +229,7 @@ export function executeByAgent(agentKey, prompt, workDir, session = {}) {
         const args = agent.getArgs(prompt, session, workDir);
 
         console.log(`[*] [${agent.name} 开始执行] 目录: ${workDir}`);
-        console.log(`[*] 执行命令: ${cmd} ${args.map(a => a.includes(" ") ? `"${a}"` : a).join(" ")}`);
+        console.log(`[*] 执行命令: ${cmd} ${args.map((a: string) => a.includes(" ") ? `"${a}"` : a).join(" ")}`);
 
         recentTaskLogs = [];
         isTaskCancelled = false;
@@ -234,13 +253,13 @@ export function executeByAgent(agentKey, prompt, workDir, session = {}) {
         let stdout = "";
         let stderr = "";
 
-        proc.stdout.on("data", (chunk) => {
+        proc.stdout?.on("data", (chunk) => {
             const str = chunk.toString("utf-8");
             stdout += str;
             appendTaskLog(str);
         });
 
-        proc.stderr.on("data", (chunk) => {
+        proc.stderr?.on("data", (chunk) => {
             const str = chunk.toString("utf-8");
             stderr += str;
             appendTaskLog(str);
