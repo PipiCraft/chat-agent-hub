@@ -180,6 +180,10 @@ pause
 goto main_entry
 
 :cmd_config
+cls
+node core/wizard.mjs
+exit /b 0
+
 :do_config
 cls
 node core/wizard.mjs

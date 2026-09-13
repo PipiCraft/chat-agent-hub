@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import crypto from "node:crypto";
 import {
     getConfig,
     saveConfig,
@@ -78,13 +79,19 @@ export async function handleCommand({
     sendReply,
     sendFeishuTaskList,
     sendFeishuAgentList,
-    sendFeishuCardNotice,
 }) {
-    const replyTarget = { channel, userId, replyContext, contextToken };
+    const config = getConfig();
+    const currentInst = getActiveInstance(false);
+    const replyTarget = {
+        channel,
+        userId,
+        replyContext,
+        contextToken,
+        workDir: currentInst?.workDir || config.workDir,
+    };
     const rawText = (text || "").trim();
     if (!rawText) return;
 
-    const config = getConfig();
     const machineLabel = (config.machineName && config.machineName.trim()) ? config.machineName.trim() : os.hostname();
 
     // 0. 优先检查人机决策审批 (ask_agent 请求答复)
@@ -523,6 +530,7 @@ export async function handleCommand({
         }
 
         const removed = instances.splice(idx, 1)[0];
+        instances.forEach((inst, i) => { inst.num = i + 1; });
         saveInstances(instances);
 
         let reply = `已关闭任务 [${removed.num}] ${removed.projectName}。`;

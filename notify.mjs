@@ -92,9 +92,20 @@ if (shouldNotifyChannel(config, "wechat") && fs.existsSync(AUTH_PATH)) {
 // 2. 推送飞书通道 (若配置启用)
 if (shouldNotifyChannel(config, "feishu") && config.channels?.feishu?.appId && config.channels?.feishu?.appSecret) {
     try {
+        let receiveIdType = "open_id";
         let feishuTargetId = null;
         if (fs.existsSync(LAST_FEISHU_USER_PATH)) {
-            feishuTargetId = fs.readFileSync(LAST_FEISHU_USER_PATH, "utf-8").trim();
+            const raw = fs.readFileSync(LAST_FEISHU_USER_PATH, "utf-8").trim();
+            if (raw.startsWith("{")) {
+                try {
+                    const parsed = JSON.parse(raw);
+                    feishuTargetId = parsed.openId || parsed.chatId;
+                    receiveIdType = feishuTargetId?.startsWith("oc_") ? "chat_id" : "open_id";
+                } catch {}
+            } else if (raw) {
+                feishuTargetId = raw;
+                receiveIdType = raw.startsWith("oc_") ? "chat_id" : "open_id";
+            }
         }
 
         if (feishuTargetId) {
@@ -104,7 +115,7 @@ if (shouldNotifyChannel(config, "feishu") && config.channels?.feishu?.appId && c
             });
 
             await client.im.message.create({
-                params: { receive_id_type: "open_id" },
+                params: { receive_id_type: receiveIdType },
                 data: {
                     receive_id: feishuTargetId,
                     msg_type: "text",
@@ -114,7 +125,7 @@ if (shouldNotifyChannel(config, "feishu") && config.channels?.feishu?.appId && c
             console.log("[√] 已成功推送到飞书！");
             sentChannels++;
         } else {
-            console.log("[!] 飞书尚未记录活跃用户 openId，请先在飞书中向机器人发送一条任意消息。");
+            console.log("[!] 飞书尚未记录活跃用户，请先在飞书中向机器人发送一条任意消息。");
         }
     } catch (e) {
         console.error("[-] 飞书推送失败:", e.message);

@@ -7,6 +7,7 @@ import {
     LOGS_DIR,
     PID_PATH,
     getConfig,
+    saveConfig,
     getInstances,
     saveInstances,
     getActiveInstance,
@@ -60,10 +61,12 @@ let currentWechatAuth = null;
  */
 async function sendChannelReply(replyTarget, text) {
     if (!replyTarget) return;
-    const { channel, userId, replyContext } = replyTarget;
+    const { channel, userId, replyContext, contextToken, workDir } = replyTarget;
 
     if (channel === "feishu") {
-        await sendFeishuReply(replyContext || userId, text);
+        // 优先使用 replyContext 中的 openId（干净字符串），回退到 userId
+        const feishuTarget = replyContext?.openId || userId;
+        await sendFeishuReply(feishuTarget, text);
         return;
     }
 
@@ -74,7 +77,7 @@ async function sendChannelReply(replyTarget, text) {
 
     // 默认微信通道
     if (currentWechatAuth) {
-        await sendWechatReply(currentWechatAuth, userId, text);
+        await sendWechatReply(currentWechatAuth, userId, text, contextToken, workDir);
     }
 }
 
@@ -138,23 +141,6 @@ async function handleFeishuApproval({ reqId, decision, userId }) {
         return { success: true, alreadyAnswered: false };
     }
     return { success: true, alreadyAnswered: true };
-}
-
-/**
- * 钉钉审批回调
- */
-async function handleDingtalkApproval({ reqId, decision, userId }) {
-    const questions = getPendingQuestions();
-    const q = questions.find((item) => item.reqId === reqId);
-    if (!q || q.answered) return { alreadyAnswered: true };
-
-    q.answered = true;
-    q.answer = decision;
-    savePendingQuestions(questions);
-
-    const reply = `已确认 [#${reqId}]: 「${decision}」，已转交 ${q.agentName}。`;
-    await sendDingtalkReply(userId, reply);
-    return { alreadyAnswered: false };
 }
 
 /**
@@ -378,7 +364,6 @@ async function startBridge() {
             const dingtalkRes = await initDingtalkChannel({
                 config: dingtalkConf,
                 onMessage: onIncomingMessage,
-                onApprovalAction: handleDingtalkApproval,
             });
             if (dingtalkRes) {
                 startedChannels++;

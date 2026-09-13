@@ -27,9 +27,8 @@ export function getLastDingtalkTarget() {
  * @param {Object} options
  * @param {Object} options.config - 钉钉配置 { clientId, clientSecret }
  * @param {Function} options.onMessage - 收到消息回调 ({ channel, userId, text, replyContext })
- * @param {Function} options.onApprovalAction - 审批回调
  */
-export async function initDingtalkChannel({ config, onMessage, onApprovalAction }) {
+export async function initDingtalkChannel({ config, onMessage }) {
     if (!config || !config.clientId || !config.clientSecret) {
         console.warn("[!] 钉钉配置缺失 (clientId 或 clientSecret 未填)，跳过钉钉通道启动。");
         return null;

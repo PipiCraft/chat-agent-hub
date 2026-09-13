@@ -5,18 +5,75 @@ import { ROOT_DIR } from "../core/state.mjs";
 
 let larkClient = null;
 let larkWsClient = null;
-let lastKnownOpenId = null;
+let lastKnownTarget = null;
 
 const LAST_USER_FILE = path.join(ROOT_DIR, "last-feishu-user.json");
 
-export function getLastFeishuUser() {
-    if (lastKnownOpenId) return lastKnownOpenId;
+export function getLastFeishuTarget() {
+    if (lastKnownTarget) return lastKnownTarget;
     try {
         if (fs.existsSync(LAST_USER_FILE)) {
-            lastKnownOpenId = fs.readFileSync(LAST_USER_FILE, "utf-8").trim();
-            return lastKnownOpenId;
+            const raw = fs.readFileSync(LAST_USER_FILE, "utf-8").trim();
+            if (raw.startsWith("{")) {
+                lastKnownTarget = JSON.parse(raw);
+                return lastKnownTarget;
+            }
+            if (raw) {
+                lastKnownTarget = { openId: raw };
+                return lastKnownTarget;
+            }
         }
     } catch {}
+    return null;
+}
+
+export function resolveFeishuDestination(target) {
+    if (!target) {
+        const last = getLastFeishuTarget();
+        if (last?.chatId) return { receiveIdType: "chat_id", receiveId: last.chatId };
+        if (last?.openId) return { receiveIdType: "open_id", receiveId: last.openId };
+        return null;
+    }
+
+    if (typeof target === "string") {
+        const s = target.trim();
+        if (!s) {
+            const last = getLastFeishuTarget();
+            if (last?.chatId) return { receiveIdType: "chat_id", receiveId: last.chatId };
+            if (last?.openId) return { receiveIdType: "open_id", receiveId: last.openId };
+            return null;
+        }
+        return {
+            receiveIdType: s.startsWith("oc_") ? "chat_id" : "open_id",
+            receiveId: s,
+        };
+    }
+
+    if (typeof target === "object") {
+        if (target.chatId && typeof target.chatId === "string") {
+            return {
+                receiveIdType: "chat_id",
+                receiveId: target.chatId.trim(),
+            };
+        }
+        if (target.openId && typeof target.openId === "string") {
+            return {
+                receiveIdType: "open_id",
+                receiveId: target.openId.trim(),
+            };
+        }
+        if (target.userId && typeof target.userId === "string") {
+            const u = target.userId.trim();
+            return {
+                receiveIdType: u.startsWith("oc_") ? "chat_id" : "open_id",
+                receiveId: u,
+            };
+        }
+    }
+
+    const last = getLastFeishuTarget();
+    if (last?.chatId) return { receiveIdType: "chat_id", receiveId: last.chatId };
+    if (last?.openId) return { receiveIdType: "open_id", receiveId: last.openId };
     return null;
 }
 
@@ -59,10 +116,10 @@ export async function initFeishuChannel({ config, onMessage, onApprovalAction, o
 
                     const openId = data.sender?.sender_id?.open_id;
                     const chatId = message.chat_id;
-                    if (openId) {
-                        lastKnownOpenId = openId;
+                    if (openId || chatId) {
+                        lastKnownTarget = { openId, chatId };
                         try {
-                            fs.writeFileSync(LAST_USER_FILE, openId, "utf-8");
+                            fs.writeFileSync(LAST_USER_FILE, JSON.stringify(lastKnownTarget, null, 2), "utf-8");
                         } catch {}
                     }
 
@@ -152,24 +209,24 @@ export async function initFeishuChannel({ config, onMessage, onApprovalAction, o
 /**
  * 向飞书用户发送纯文本消息
  */
-export async function sendFeishuReply(openId, content) {
+export async function sendFeishuReply(target, content) {
     if (!larkClient) {
         console.error("[-] 飞书客户端未初始化，无法发送消息");
         return;
     }
-    const targetId = openId || getLastFeishuUser();
-    if (!targetId) {
-        console.warn("[!] 飞书发送目标 openId 为空，请先在飞书中向机器人发送一条任意消息。");
+    const dest = resolveFeishuDestination(target);
+    if (!dest) {
+        console.warn("[!] 飞书发送目标为空，请先在飞书中向机器人发送一条任意消息。");
         return;
     }
 
     try {
         await larkClient.im.message.create({
             params: {
-                receive_id_type: "open_id",
+                receive_id_type: dest.receiveIdType,
             },
             data: {
-                receive_id: targetId,
+                receive_id: dest.receiveId,
                 msg_type: "text",
                 content: JSON.stringify({ text: content }),
             },
@@ -182,10 +239,10 @@ export async function sendFeishuReply(openId, content) {
 /**
  * 向飞书用户发送带交互按钮的多方向/二选一决策卡片
  */
-export async function sendFeishuApprovalCard(openId, { reqId, question, options, projectName, agentName, timeoutSeconds = 300 }) {
+export async function sendFeishuApprovalCard(target, { reqId, question, options, projectName, agentName, timeoutSeconds = 300 }) {
     if (!larkClient) return;
-    const targetId = openId || getLastFeishuUser();
-    if (!targetId) return;
+    const dest = resolveFeishuDestination(target);
+    if (!dest) return;
 
     try {
         const actionsList = [];
@@ -282,15 +339,15 @@ export async function sendFeishuApprovalCard(openId, { reqId, question, options,
 
         await larkClient.im.message.create({
             params: {
-                receive_id_type: "open_id",
+                receive_id_type: dest.receiveIdType,
             },
             data: {
-                receive_id: targetId,
+                receive_id: dest.receiveId,
                 msg_type: "interactive",
                 content: JSON.stringify(cardJson),
             },
         });
-        console.log(`[+] 已向飞书用户 ${targetId} 推送决策卡片 #${reqId}`);
+        console.log(`[+] 已向飞书 [${dest.receiveIdType}:${dest.receiveId}] 推送决策卡片 #${reqId}`);
     } catch (err) {
         console.error("[-] 推送飞书决策卡片失败:", err.message);
     }
@@ -299,10 +356,10 @@ export async function sendFeishuApprovalCard(openId, { reqId, question, options,
 /**
  * 向飞书用户发送任务与项目列表交互卡片
  */
-export async function sendFeishuTaskListCard(openId, { instances, activeInst, machineLabel }) {
+export async function sendFeishuTaskListCard(target, { instances, activeInst, machineLabel }) {
     if (!larkClient) return;
-    const targetId = openId || getLastFeishuUser();
-    if (!targetId) return;
+    const dest = resolveFeishuDestination(target);
+    if (!dest) return;
 
     try {
         const elements = [];
@@ -422,14 +479,14 @@ export async function sendFeishuTaskListCard(openId, { instances, activeInst, ma
         };
 
         await larkClient.im.message.create({
-            params: { receive_id_type: "open_id" },
+            params: { receive_id_type: dest.receiveIdType },
             data: {
-                receive_id: targetId,
+                receive_id: dest.receiveId,
                 msg_type: "interactive",
                 content: JSON.stringify(cardJson),
             },
         });
-        console.log(`[+] 已向飞书用户 ${targetId} 推送任务列表交互卡片`);
+        console.log(`[+] 已向飞书 [${dest.receiveIdType}:${dest.receiveId}] 推送任务列表交互卡片`);
     } catch (err) {
         console.error("[-] 推送飞书任务列表卡片失败:", err.message);
     }
@@ -438,10 +495,10 @@ export async function sendFeishuTaskListCard(openId, { instances, activeInst, ma
 /**
  * 向飞书用户发送本机智能体选择与切换卡片
  */
-export async function sendFeishuAgentListCard(openId, { detectedAgents, defAgent, activeInst, machineLabel }) {
+export async function sendFeishuAgentListCard(target, { detectedAgents, defAgent, activeInst, machineLabel }) {
     if (!larkClient) return;
-    const targetId = openId || getLastFeishuUser();
-    if (!targetId) return;
+    const dest = resolveFeishuDestination(target);
+    if (!dest) return;
 
     try {
         const elements = [];
@@ -510,14 +567,14 @@ export async function sendFeishuAgentListCard(openId, { detectedAgents, defAgent
         };
 
         await larkClient.im.message.create({
-            params: { receive_id_type: "open_id" },
+            params: { receive_id_type: dest.receiveIdType },
             data: {
-                receive_id: targetId,
+                receive_id: dest.receiveId,
                 msg_type: "interactive",
                 content: JSON.stringify(cardJson),
             },
         });
-        console.log(`[+] 已向飞书用户 ${targetId} 推送智能体选择交互卡片`);
+        console.log(`[+] 已向飞书 [${dest.receiveIdType}:${dest.receiveId}] 推送智能体选择交互卡片`);
     } catch (err) {
         console.error("[-] 推送飞书智能体卡片失败:", err.message);
     }
@@ -526,10 +583,10 @@ export async function sendFeishuAgentListCard(openId, { detectedAgents, defAgent
 /**
  * 中枢首次启动/连接就绪时向飞书推送环境卡片
  */
-export async function sendFeishuOnlineNotice(openId, { machineLabel, defAgent, workDir }) {
+export async function sendFeishuOnlineNotice(target, { machineLabel, defAgent, workDir }) {
     if (!larkClient) return;
-    const targetId = openId || getLastFeishuUser();
-    if (!targetId) return;
+    const dest = resolveFeishuDestination(target);
+    if (!dest) return;
 
     try {
         const cardJson = {
@@ -574,14 +631,14 @@ export async function sendFeishuOnlineNotice(openId, { machineLabel, defAgent, w
         };
 
         await larkClient.im.message.create({
-            params: { receive_id_type: "open_id" },
+            params: { receive_id_type: dest.receiveIdType },
             data: {
-                receive_id: targetId,
+                receive_id: dest.receiveId,
                 msg_type: "interactive",
                 content: JSON.stringify(cardJson),
             },
         });
-        console.log(`[+] 已向飞书用户 ${targetId} 推送上线就绪通知卡片`);
+        console.log(`[+] 已向飞书 [${dest.receiveIdType}:${dest.receiveId}] 推送上线就绪通知卡片`);
     } catch (err) {
         console.error("[-] 推送飞书上线通知失败:", err.message);
     }

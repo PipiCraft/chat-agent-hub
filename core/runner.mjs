@@ -50,8 +50,6 @@ export const BUILTIN_AGENTS = [
     },
 ];
 
-export const SUPPORTED_AGENTS = BUILTIN_AGENTS;
-
 /**
  * 获取所有支持的智能体（内置智能体 + config.json 自定义智能体，同 key 自定义优先覆盖）
  */

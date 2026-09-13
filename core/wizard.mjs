@@ -299,7 +299,8 @@ export async function runWizard() {
                 openConfigInEditor();
             } else if (choice.toLowerCase() === "q" || choice.toLowerCase() === "exit") {
                 console.log("已退出配置助手。");
-                break;
+                rl.close();
+                process.exit(0);
             } else {
                 console.log("[-] 无效选项，请重新选择。");
             }

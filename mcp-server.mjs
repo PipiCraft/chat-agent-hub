@@ -37,14 +37,28 @@ async function sendToFeishu(text) {
         const feishuConf = conf.channels?.feishu;
         if (!feishuConf || !feishuConf.enabled || !feishuConf.appId || !feishuConf.appSecret) return null;
         if (!fs.existsSync(LAST_FEISHU_USER_PATH)) return null;
-        const targetOpenId = fs.readFileSync(LAST_FEISHU_USER_PATH, "utf-8").trim();
-        if (!targetOpenId) return null;
+        const raw = fs.readFileSync(LAST_FEISHU_USER_PATH, "utf-8").trim();
+        if (!raw) return null;
+
+        let receiveIdType = "open_id";
+        let receiveId = raw;
+        if (raw.startsWith("{")) {
+            try {
+                const parsed = JSON.parse(raw);
+                receiveId = parsed.openId || parsed.chatId;
+                receiveIdType = receiveId?.startsWith("oc_") ? "chat_id" : "open_id";
+            } catch {}
+        } else if (raw.startsWith("oc_")) {
+            receiveIdType = "chat_id";
+        }
+
+        if (!receiveId) return null;
 
         const larkClient = new lark.Client({ appId: feishuConf.appId, appSecret: feishuConf.appSecret });
         await larkClient.im.message.create({
-            params: { receive_id_type: "open_id" },
+            params: { receive_id_type: receiveIdType },
             data: {
-                receive_id: targetOpenId,
+                receive_id: receiveId,
                 msg_type: "text",
                 content: JSON.stringify({ text }),
             },

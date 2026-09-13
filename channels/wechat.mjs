@@ -16,14 +16,6 @@ const baseInfo = {
 let currentAuth = null;
 let lastKnownUserId = null;
 
-export function getLastWechatUser() {
-    return lastKnownUserId;
-}
-
-export function getWechatAuth() {
-    return currentAuth;
-}
-
 function randomWechatUin() {
     const uint32 = crypto.randomBytes(4).readUInt32BE(0);
     return Buffer.from(String(uint32), "utf-8").toString("base64");

@@ -14,6 +14,7 @@ pending-questions.json
 bridge.pid
 *.pid
 latest_result.md
+agent.md
 
 # 个人对话记录与沙盒工作区
 logs/
