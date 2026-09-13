@@ -1,0 +1,38 @@
+{
+  "machineName": "",
+  "defaultAgent": "auto",
+  "sessionIdleMinutes": 15,
+  "logRetentionDays": 14,
+  "workDir": "./workspace",
+  "notifyChannels": ["all"],
+  "projects": [
+    {
+      "name": "默认工作区",
+      "path": "./workspace"
+    }
+  ],
+  "customAgents": [
+    {
+      "key": "myagent",
+      "name": "自定义智能体",
+      "aliases": ["myagent", "ma"],
+      "cmd": "myagent",
+      "args": ["-p", "{prompt}"]
+    }
+  ],
+  "channels": {
+    "wechat": {
+      "enabled": true
+    },
+    "feishu": {
+      "enabled": false,
+      "appId": "",
+      "appSecret": ""
+    },
+    "dingtalk": {
+      "enabled": false,
+      "clientId": "",
+      "clientSecret": ""
+    }
+  }
+}

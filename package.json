@@ -1,0 +1,31 @@
+{
+  "name": "chat-agent-hub",
+  "version": "1.0.0",
+  "description": "Multi-channel Chat Agent Hub connecting WeChat, Feishu, and DingTalk to AI coding agents (Claude Code, OpenCode, Hermes, Codex, Pi, OpenClaw)",
+  "main": "bridge.mjs",
+  "scripts": {
+    "start": "node bridge.mjs",
+    "test": "node --check bridge.mjs && node --check mcp-server.mjs && node --check notify.mjs && node --check core/state.mjs && node --check core/runner.mjs && node --check core/commands.mjs && node --check core/git.mjs && node --check core/wizard.mjs && node --check channels/common.mjs && node --check channels/wechat.mjs && node --check channels/feishu.mjs && node --check channels/dingtalk.mjs",
+    "notify": "node notify.mjs"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "wechat",
+    "feishu",
+    "dingtalk",
+    "claude-code",
+    "opencode",
+    "codex",
+    "mcp"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.73.3",
+    "@tencent-weixin/openclaw-weixin": "^2.4.8",
+    "dingtalk-stream": "^2.1.6-beta.1",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
