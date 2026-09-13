@@ -95,15 +95,15 @@ cp config.example.json config.json
   双击 `run.bat`，输入 **2** 然后回车。服务将在系统后台无感常驻，**启动窗口会立即自动关闭退出，完全不占桌面与任务栏**。
 - **停止服务**：
   再次双击 `run.bat`，脚本自动检测后台运行中的 PID，直接按 **回车** 即可一键安全停止。
-- **命令行快捷调用（CMD / PowerShell）**：
+- **命令行快捷调用（PowerShell 请加 `.\`，CMD 可直接运行）**：
   ```bash
-  run.bat           # 打开交互式菜单 (按 c 可进配置向导)
-  run.bat start     # 控制台前台启动
-  run.bat start -s  # 后台静默启动（无窗口常驻）
-  run.bat stop      # 停止后台服务
-  run.bat restart   # 重启服务
-  run.bat status    # 查询当前运行状态与 PID
-  run.bat config    # 通道配置助手 (交互式添加/修改飞书、钉钉并自动重启)
+  .\run.bat           # 打开交互式菜单 (按 c 可进配置向导)
+  .\run.bat start     # 控制台前台启动
+  .\run.bat start -s  # 后台静默启动（无窗口常驻）
+  .\run.bat stop      # 停止后台服务
+  .\run.bat restart   # 重启服务
+  .\run.bat status    # 查询当前运行状态与 PID
+  .\run.bat config    # 通道配置助手 (交互式添加/修改飞书、钉钉并自动重启)
   ```
 
 #### Linux / macOS 环境：
