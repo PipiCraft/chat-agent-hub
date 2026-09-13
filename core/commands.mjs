@@ -254,14 +254,14 @@ export async function handleCommand({
     if (channelCmdMatch) {
         const lower = rawText.toLowerCase();
         if (lower.includes("飞书")) {
-            const reply = `【添加飞书通道指引】\n━━━━━━━━━━━━━━\n1. 访问飞书开放平台 (open.feishu.cn) 创建自建应用并添加「机器人」能力\n2. 开通权限: 在「权限管理」开通 im:message (收发消息)\n3. 事件订阅: 在「事件与回调」选择长连接 (WebSocket)，添加事件 im.message.receive_v1\n4. 快捷接入:\n   电脑终端运行: run.bat config (选 1 输入 App ID 与 Secret 自动重启生效)\n   或直接在 config.json 的 channels.feishu 填入。`;
+            const reply = `【添加飞书通道指引】\n━━━━━━━━━━━━━━\n1. 访问飞书开放平台 (open.feishu.cn) 创建自建应用并添加「机器人」能力\n2. 开通权限: 在「权限管理」开通 im:message (收发消息)\n3. 事件订阅: 在「事件与回调」选择长连接 (WebSocket)，添加事件 im.message.receive_v1\n4. 快捷接入:\n   电脑终端运行: .\\run.bat config (选 1 输入 App ID 与 Secret 自动重启生效)\n   或直接在 config.json 的 channels.feishu 填入。`;
             appendHistoryLog(userId, rawText, reply, config.workDir, 0);
             await sendReply(replyTarget, reply);
             return;
         }
 
         if (lower.includes("钉钉")) {
-            const reply = `【添加钉钉通道指引】\n━━━━━━━━━━━━━━\n1. 访问钉钉开发者后台 (open-dev.dingtalk.com) 创建应用并添加「机器人」能力\n2. 模式选择: 消息接收模式设为 Stream 模式并保存发布\n3. 快捷接入:\n   电脑终端运行: run.bat config (选 2 输入 Client ID 与 Secret 自动重启生效)\n   或直接在 config.json 的 channels.dingtalk 填入。`;
+            const reply = `【添加钉钉通道指引】\n━━━━━━━━━━━━━━\n1. 访问钉钉开发者后台 (open-dev.dingtalk.com) 创建应用并添加「机器人」能力\n2. 模式选择: 消息接收模式设为 Stream 模式并保存发布\n3. 快捷接入:\n   电脑终端运行: .\\run.bat config (选 2 输入 Client ID 与 Secret 自动重启生效)\n   或直接在 config.json 的 channels.dingtalk 填入。`;
             appendHistoryLog(userId, rawText, reply, config.workDir, 0);
             await sendReply(replyTarget, reply);
             return;
@@ -276,7 +276,7 @@ export async function handleCommand({
         reply += `• 微信: [${wechatOn ? "已启用" : "未启用"}]\n`;
         reply += `• 飞书: [${feishuOn ? "已启用" : "未启用"}]\n`;
         reply += `• 钉钉: [${dingtalkOn ? "已启用" : "未启用"}]\n\n`;
-        reply += `[如何添加新通道]\n• 电脑终端推荐: run.bat config (向导交互配置并自动重启)\n• 或手机回复「添加飞书」/「添加钉钉」查看具体操作步骤。`;
+        reply += `[如何添加新通道]\n• 电脑终端推荐: .\\run.bat config (向导交互配置并自动重启)\n• 或手机回复「添加飞书」/「添加钉钉」查看具体操作步骤。`;
 
         appendHistoryLog(userId, rawText, reply, config.workDir, 0);
         await sendReply(replyTarget, reply);

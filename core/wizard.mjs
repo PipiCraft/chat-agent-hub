@@ -68,7 +68,7 @@ function restartService(runningPid) {
         }
         console.log("[+] 服务已成功在后台重启！新通道已加载。");
     } catch (err) {
-        console.log("[-] 重启触发异常，请手动执行 run.bat restart。");
+        console.log("[-] 重启触发异常，请手动执行 .\\run.bat restart。");
     }
 }
 
@@ -132,10 +132,10 @@ async function configureFeishu(rl, config, runningPid) {
         if (restartAns === "" || restartAns.toLowerCase() === "y" || restartAns.toLowerCase() === "yes") {
             restartService(runningPid);
         } else {
-            console.log("[i] 您稍后可执行 run.bat restart 手动重启生效。");
+            console.log("[i] 您稍后可执行 .\\run.bat restart 手动重启生效。");
         }
     } else {
-        console.log("[i] 配置完成。执行 run.bat 启动服务即可自动连通飞书。");
+        console.log("[i] 配置完成。执行 .\\run.bat 启动服务即可自动连通飞书。");
     }
 }
 
@@ -196,10 +196,10 @@ async function configureDingtalk(rl, config, runningPid) {
         if (restartAns === "" || restartAns.toLowerCase() === "y" || restartAns.toLowerCase() === "yes") {
             restartService(runningPid);
         } else {
-            console.log("[i] 您稍后可执行 run.bat restart 手动重启生效。");
+            console.log("[i] 您稍后可执行 .\\run.bat restart 手动重启生效。");
         }
     } else {
-        console.log("[i] 配置完成。执行 run.bat 启动服务即可自动连通钉钉。");
+        console.log("[i] 配置完成。执行 .\\run.bat 启动服务即可自动连通钉钉。");
     }
 }
 
@@ -232,7 +232,7 @@ async function manageWechat(rl, config, runningPid) {
         try {
             if (fs.existsSync(AUTH_PATH)) fs.unlinkSync(AUTH_PATH);
             console.log("[+] 微信旧登录缓存已清除。");
-            console.log("[i] 接下来启动服务或执行 run.bat start 控制台模式即可重新扫码。");
+            console.log("[i] 接下来启动服务或执行 .\\run.bat start 控制台模式即可重新扫码。");
         } catch (e) {
             console.log("[-] 清除失败: " + e.message);
         }
