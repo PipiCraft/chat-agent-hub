@@ -22,7 +22,7 @@
   ],
   "channels": {
     "wechat": {
-      "enabled": true
+      "enabled": false
     },
     "feishu": {
       "enabled": false,

@@ -23,8 +23,7 @@ import {
     getRunningTask,
 } from "./core/runner.js";
 import { handleCommand } from "./core/commands.js";
-import type { WechatAuth, ReplyTarget, Instance } from "./types/index.js";
-import path from "node:path";
+import type { WechatAuth, ReplyTarget } from "./types/index.js";
 import { shouldNotifyChannel } from "./channels/common.js";
 
 import { startWechatChannel, sendWechatReply } from "./channels/wechat.js";
@@ -42,6 +41,8 @@ import {
     sendDingtalkApprovalCard,
 } from "./channels/dingtalk.js";
 
+import pc from "picocolors";
+
 // PID 管理与进程安全退出
 try {
     fs.writeFileSync(PID_PATH, String(process.pid), "utf-8");
@@ -49,12 +50,54 @@ try {
 
 function cleanupPid() {
     try {
+        if (process.stdin.isTTY) {
+            process.stdin.setRawMode(false);
+        }
+    } catch {}
+    try {
         if (fs.existsSync(PID_PATH)) fs.unlinkSync(PID_PATH);
     } catch {}
 }
-process.on("exit", cleanupPid);
-process.on("SIGINT", () => { cleanupPid(); process.exit(0); });
-process.on("SIGTERM", () => { cleanupPid(); process.exit(0); });
+process.on("exit", (code) => {
+    console.log(`[*] 服务进程正在退出 (exit code: ${code})`);
+    cleanupPid();
+});
+process.on("SIGINT", () => { cleanupPid(); process.exit(130); });
+process.on("SIGTERM", () => { cleanupPid(); process.exit(143); });
+process.on("uncaughtException", (err) => {
+    console.error("[-] 未捕获异常 (uncaughtException):", err);
+});
+process.on("unhandledRejection", (reason) => {
+    console.error("[-] 未处理 Promise 拒绝 (unhandledRejection):", reason);
+});
+
+/**
+ * 前台交互控制：支持按 'q' 快速停止服务或 Ctrl+C 退出
+ */
+function enableForegroundControls(): void {
+    if (!process.stdin.isTTY) return;
+
+    try {
+        process.stdin.setRawMode(true);
+        process.stdin.resume();
+        process.stdin.setEncoding("utf8");
+
+        process.stdin.on("data", (chunk: string) => {
+            if (chunk === "q" || chunk === "Q") {
+                console.log(pc.yellow("\n[*] 收到 'q' 快捷停止指令，调度服务已停止，返回控制面板..."));
+                try { process.stdin.setRawMode(false); } catch {}
+                cleanupPid();
+                process.exit(0);
+            }
+            if (chunk === "\u0003") {
+                console.log(pc.yellow("\n[*] 收到退出信号 (Ctrl+C)，调度服务已停止..."));
+                try { process.stdin.setRawMode(false); } catch {}
+                cleanupPid();
+                process.exit(130);
+            }
+        });
+    } catch {}
+}
 
 let currentWechatAuth: WechatAuth | null = null;
 
@@ -287,17 +330,22 @@ export async function startBridge(): Promise<void> {
     console.log(`[+] 历史归档目录: ${LOGS_DIR}`);
     cleanOldLogs(config.logRetentionDays ?? 14);
 
-    // 自检探测本机 AI 智能体安装情况
-    console.log("[*] 正在探测本机已安装的 AI 智能体...");
-    const available = detectInstalledAgents().filter((a) => a.installed);
+    // 自检探测本机 AI 智能体安装情况与 MCP 配置
+    console.log("[*] 正在探测本机已安装的 AI 智能体与 MCP 接入状态...");
+    const allDetected = detectInstalledAgents(config.workDir);
+    const available = allDetected.filter((a) => a.installed);
     if (available.length > 0) {
         available.forEach((a) => {
-            console.log(`  [√] ${a.name.padEnd(12)}: 已就绪 (${a.key})`);
+            const mcpTag = a.mcpConfigured ? `\x1b[32m[√ ${a.mcpDetails}]\x1b[0m` : `\x1b[33m[! ${a.mcpDetails}]\x1b[0m`;
+            console.log(`  [√] ${a.name.padEnd(12)}: 已就绪 (${a.key})  ${mcpTag}`);
+            if (!a.mcpConfigured && a.mcpHint) {
+                console.log(`      └─ 提示: ${a.mcpHint}`);
+            }
         });
     } else {
         console.log("  [-] 未检测到已就绪的 AI 智能体 (可在系统安装 claude / opencode / hermes / codex / pi / openclaw)");
     }
-    const defAgent = resolveDefaultAgent(config);
+    const defAgent = resolveDefaultAgent(config, allDetected);
     console.log(`[+] 默认智能体: ${defAgent.name} (配置模式: defaultAgent="${config.defaultAgent || "auto"}")`);
     console.log(`[+] 会话保活窗口: ${config.sessionIdleMinutes ?? 15} 分钟 (空闲超时自动关闭释放)`);
 
@@ -317,7 +365,7 @@ export async function startBridge(): Promise<void> {
 
     // 1. 启动微信通道
     const wechatConf = config.channels?.wechat;
-    if (!wechatConf || wechatConf.enabled !== false) {
+    if (Boolean(wechatConf?.enabled)) {
         try {
             const wechatRes = await startWechatChannel({
                 authPath: AUTH_PATH,
@@ -376,12 +424,24 @@ export async function startBridge(): Promise<void> {
     }
 
     if (startedChannels === 0) {
-        console.warn("[!] 警告: 未启动任何消息通道。请检查 config.json 配置。");
+        console.warn("\n[!] 启动中止: 未激活任何有效消息通道 (微信、飞书、钉钉均未开启或未配置)。");
+        console.warn("[i] 提示: 请先在终端执行 `cah config` 开启并配置至少一个消息通道。\n");
+        process.exit(1);
     } else {
-        console.log(`[+] 调度中枢启动就绪，已激活 ${startedChannels} 个消息通道。\n`);
+        console.log(`[+] 调度中枢启动就绪，已激活 ${startedChannels} 个消息通道。`);
+        console.log(pc.cyan(`[快捷操作] 按 'q' 键停止服务并返回控制面板 | 按 Ctrl+C 退出整个服务\n`));
+        enableForegroundControls();
     }
 }
 
-startBridge().catch((err) => {
-    console.error("[-] 调度中枢致命异常:", err);
-});
+const isDirectRun = Boolean(process.argv[1] && (
+    process.argv[1].endsWith("bridge.js") ||
+    process.argv[1].endsWith("bridge.ts") ||
+    process.argv[1].endsWith("bridge")
+));
+
+if (isDirectRun) {
+    startBridge().catch((err) => {
+        console.error("[-] 调度中枢致命异常:", err);
+    });
+}

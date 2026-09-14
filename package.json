@@ -47,6 +47,7 @@
   "homepage": "https://github.com/PipiCraft/chat-agent-hub#readme",
   "type": "module",
   "dependencies": {
+    "@clack/core": "^0.6.1",
     "@clack/prompts": "^1.8.0",
     "@larksuiteoapi/node-sdk": "^1.73.3",
     "@tencent-weixin/openclaw-weixin": "^2.4.8",

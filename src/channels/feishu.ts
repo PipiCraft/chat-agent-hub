@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import path from "node:path";
 import * as lark from "@larksuiteoapi/node-sdk";
 import { LAST_FEISHU_USER_PATH } from "../core/state.js";
 
@@ -502,11 +501,15 @@ export async function sendFeishuAgentListCard(target: any, { detectedAgents, def
 
     try {
         const elements = [];
+        const taskContent = activeInst
+            ? `**当前任务**: [${activeInst.num}] ${activeInst.projectName}\n**当前助手**: **${activeInst.agentName}** (${activeInst.agentKey})\n**生效目录**: \`${activeInst.workDir}\``
+            : `**当前任务**: [暂无活动任务·待命]\n**默认助手**: **${defAgent?.name || "Claude Code"}** (${defAgent?.key || "claude"})\n**说明**: 直接发送指令可自动建立新任务执行`;
+
         elements.push({
             tag: "div",
             text: {
                 tag: "lark_md",
-                content: `**当前任务**: [${activeInst.num}] ${activeInst.projectName}\n**当前助手**: **${activeInst.agentName}** (${activeInst.agentKey})\n**生效目录**: \`${activeInst.workDir}\``,
+                content: taskContent,
             },
         });
         elements.push({ tag: "hr" });
@@ -521,18 +524,19 @@ export async function sendFeishuAgentListCard(target: any, { detectedAgents, def
             });
         } else {
             detectedAgents.forEach((agent: any, idx: number) => {
-                const isGlobalDef = agent.key === defAgent.key;
-                const isCurrentActive = agent.key === activeInst.agentKey;
+                const isGlobalDef = defAgent && agent.key === defAgent.key;
+                const isCurrentActive = activeInst ? agent.key === activeInst.agentKey : false;
                 let tag = "";
                 if (isGlobalDef && isCurrentActive) tag = " **[全局默认·当前使用]**";
                 else if (isGlobalDef) tag = " **[全局默认]**";
                 else if (isCurrentActive) tag = " **[当前任务使用]**";
+                const mcpTag = agent.mcpConfigured ? " · `MCP已连`" : " · `MCP未配`";
 
                 elements.push({
                     tag: "div",
                     text: {
                         tag: "lark_md",
-                        content: `**[${idx + 1}] ${agent.name}** (\`${agent.key}\`)${tag}`,
+                        content: `**[${idx + 1}] ${agent.name}** (\`${agent.key}\`)${tag}${mcpTag}`,
                     },
                 });
 

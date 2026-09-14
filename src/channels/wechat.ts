@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import qrcodeTerminal from "qrcode-terminal";
+import pc from "picocolors";
+import * as p from "@clack/prompts";
 import { formatWechatText } from "./common.js";
 import type { WechatAuth } from "../types/index.js";
 
@@ -36,65 +38,116 @@ function commonHeaders(token: string | null = null): Record<string, string> {
     return headers;
 }
 
-// 扫码登录流程
-export async function loginWechatFlow(authPath?: string): Promise<WechatAuth> {
-    console.log("=========================================");
-    console.log("  微信通道扫码登录授权");
-    console.log("=========================================");
-    console.log("[*] 正在向微信请求登录二维码...");
-
-    const qrRes = await fetch(`${FIXED_BASE_URL}/ilink/bot/get_bot_qrcode?bot_type=3`, {
-        method: "POST",
-        headers: commonHeaders(),
-        body: JSON.stringify({ local_token_list: [], base_info: baseInfo }),
-    });
-    const qrData = await qrRes.json() as any;
-
-    if (!qrData.qrcode || !qrData.qrcode_img_content) {
-        throw new Error("获取二维码失败: " + JSON.stringify(qrData));
+// 扫码登录流程（使用 @clack/prompts 原生 p.note + p.spinner，不侵入篡改底层 stdin/rawMode）
+export async function loginWechatFlow(
+    authPath?: string,
+    onExitConfirm?: () => Promise<boolean>
+): Promise<WechatAuth | null> {
+    let qrData: any;
+    try {
+        const qrRes = await fetch(`${FIXED_BASE_URL}/ilink/bot/get_bot_qrcode?bot_type=3`, {
+            method: "POST",
+            headers: commonHeaders(),
+            body: JSON.stringify({ local_token_list: [], base_info: baseInfo }),
+        });
+        qrData = (await qrRes.json()) as any;
+        if (!qrData.qrcode || !qrData.qrcode_img_content) {
+            throw new Error("获取二维码失败: " + JSON.stringify(qrData));
+        }
+    } catch (err: any) {
+        throw new Error("向微信服务器请求登录二维码失败: " + (err?.message || err));
     }
 
-    console.log("\n请使用手机微信扫描下方二维码：\n");
-    qrcodeTerminal.generate(qrData.qrcode_img_content, { small: true });
-    console.log(`备用链接: ${qrData.qrcode_img_content}\n`);
-    console.log("[*] 等待扫码确认中...");
+    let qrAscii = "";
+    qrcodeTerminal.generate(qrData.qrcode_img_content, { small: true }, (code) => {
+        qrAscii = code.trim();
+    });
+
+    p.note(
+        [
+            pc.bold("请使用手机微信扫描下方二维码绑定账号:"),
+            "",
+            qrAscii,
+            "",
+            `备用链接: ${pc.cyan(qrData.qrcode_img_content)}`,
+            pc.dim("提示: 扫码后请在手机微信上点击「确认授权」 (按 Ctrl+C 可取消)"),
+        ].join("\n"),
+        "微信通道扫码登录授权"
+    );
+
+    const s = p.spinner();
+    s.start("等待手机微信扫码中...");
 
     let currentBaseUrl = FIXED_BASE_URL;
-    while (true) {
-        try {
-            const pollRes = await fetch(
-                `${currentBaseUrl}/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrData.qrcode)}`,
-                {
-                    method: "GET",
-                    headers: {
-                        "iLink-App-Id": ILINK_APP_ID,
-                        "iLink-App-ClientVersion": String(ILINK_APP_CLIENT_VERSION),
-                    },
-                }
-            );
-            const statusData = await pollRes.json() as any;
+    let isCancelled = false;
 
-            if (statusData.status === "confirmed") {
-                console.log("\n[+] 微信扫码授权成功");
-                const authInfo: WechatAuth = {
-                    botToken: statusData.bot_token,
-                    baseUrl: statusData.baseurl || FIXED_BASE_URL,
-                    userId: statusData.ilink_user_id,
-                };
-                if (authPath) {
-                    fs.writeFileSync(authPath, JSON.stringify(authInfo, null, 2), "utf-8");
-                }
-                currentAuth = authInfo;
-                return authInfo;
-            } else if (statusData.status === "scaned") {
-                process.stdout.write("\r[*] 手机已扫码，请在手机上点击确认授权...");
-            } else if (statusData.status === "scaned_but_redirect" && statusData.redirect_host) {
-                currentBaseUrl = `https://${statusData.redirect_host}`;
-            } else if (statusData.status === "expired") {
-                throw new Error("二维码已过期，请重启服务重试。");
+    const sigintHandler = async () => {
+        if (onExitConfirm) {
+            s.stop();
+            const shouldExit = await onExitConfirm();
+            if (shouldExit) {
+                isCancelled = true;
+            } else {
+                s.start("继续等待手机微信扫码中...");
+                process.once("SIGINT", sigintHandler);
             }
-        } catch (e) {}
-        await new Promise((r) => setTimeout(r, 1000));
+        } else {
+            isCancelled = true;
+        }
+    };
+
+    if (onExitConfirm) {
+        process.once("SIGINT", sigintHandler);
+    }
+
+    try {
+        while (!isCancelled) {
+            try {
+                const pollRes = await fetch(
+                    `${currentBaseUrl}/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrData.qrcode)}`,
+                    {
+                        method: "GET",
+                        headers: {
+                            "iLink-App-Id": ILINK_APP_ID,
+                            "iLink-App-ClientVersion": String(ILINK_APP_CLIENT_VERSION),
+                        },
+                    }
+                );
+                const statusData = (await pollRes.json()) as any;
+
+                if (statusData.status === "confirmed") {
+                    s.stop(pc.green("微信扫码授权成功！已绑定微信账号。"));
+                    const authInfo: WechatAuth = {
+                        botToken: statusData.bot_token,
+                        baseUrl: statusData.baseurl || FIXED_BASE_URL,
+                        userId: statusData.ilink_user_id,
+                    };
+                    if (authPath) {
+                        fs.writeFileSync(authPath, JSON.stringify(authInfo, null, 2), "utf-8");
+                    }
+                    currentAuth = authInfo;
+                    return authInfo;
+                } else if (statusData.status === "scaned") {
+                    s.message(pc.cyan("手机已扫码，请在手机上点击确认授权..."));
+                } else if (statusData.status === "scaned_but_redirect" && statusData.redirect_host) {
+                    currentBaseUrl = `https://${statusData.redirect_host}`;
+                } else if (statusData.status === "expired") {
+                    s.stop(pc.red("二维码已过期，请重新进入微信管理菜单扫码。"));
+                    return null;
+                }
+            } catch (e: any) {
+                // 忽略网络瞬时抖动，继续轮询
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+
+        s.stop(pc.yellow("微信扫码登录已取消。"));
+        return null;
+    } finally {
+        if (onExitConfirm) {
+            process.removeListener("SIGINT", sigintHandler);
+        }
     }
 }
 
@@ -198,6 +251,10 @@ export async function startWechatChannel({ authPath, syncPath, onMessage }: Star
 
     if (!auth || !auth.botToken) {
         auth = await loginWechatFlow(authPath);
+        if (!auth) {
+            console.log(pc.yellow("[!] 微信扫码登录已取消。"));
+            return null;
+        }
     }
     currentAuth = auth;
     console.log(`[+] 微信通道已激活`);
@@ -255,8 +312,11 @@ export async function startWechatChannel({ authPath, syncPath, onMessage }: Star
                 } else if (data.ret === 40001 || data.errcode === 40001) {
                     console.warn("[!] 微信凭证失效，正在重新登录...");
                     if (authPath && fs.existsSync(authPath)) fs.unlinkSync(authPath);
-                    auth = await loginWechatFlow(authPath);
-                    currentAuth = auth;
+                    const newAuth = await loginWechatFlow(authPath);
+                    if (newAuth) {
+                        auth = newAuth;
+                        currentAuth = auth;
+                    }
                 } else {
                     await new Promise((r) => setTimeout(r, 2000));
                 }

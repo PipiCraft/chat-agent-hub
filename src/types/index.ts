@@ -10,6 +10,7 @@ export interface FeishuChannelConfig {
     enabled: boolean;
     appId: string;
     appSecret: string;
+    defaultChatId?: string;
 }
 
 export interface DingtalkChannelConfig {
@@ -137,4 +138,7 @@ export interface InstalledAgentInfo {
     path?: string;
     aliases?: string[];
     custom?: boolean;
+    mcpConfigured?: boolean;
+    mcpDetails?: string;
+    mcpHint?: string;
 }

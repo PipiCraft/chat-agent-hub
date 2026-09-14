@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 
 export interface GitSummaryResult {
     hasChanges: boolean;
@@ -10,17 +10,29 @@ export interface GitSummaryResult {
  */
 export async function getGitSummary(workDir: string): Promise<GitSummaryResult | null> {
     try {
-        const status = execSync("git status --short", { cwd: workDir, encoding: "utf-8", timeout: 3000 });
-        if (!status || !status.trim()) {
+        const res = spawnSync("git", ["status", "--short"], {
+            cwd: workDir,
+            encoding: "utf-8",
+            timeout: 3000,
+            windowsHide: true,
+        });
+        const status = (res.stdout || "").trim();
+        if (!status) {
             return { hasChanges: false, summary: "代码无未提交改动。" };
         }
         let diff = "";
         try {
-            diff = execSync("git diff --stat", { cwd: workDir, encoding: "utf-8", timeout: 5000 });
+            const diffRes = spawnSync("git", ["diff", "--stat"], {
+                cwd: workDir,
+                encoding: "utf-8",
+                timeout: 5000,
+                windowsHide: true,
+            });
+            diff = (diffRes.stdout || "").trim();
         } catch {}
 
-        const lines = status.trim().split("\n");
-        const summary = `Git 变动 (${lines.length} 个文件):\n${status.trim()}${diff.trim() ? "\n\n" + diff.trim() : ""}`;
+        const lines = status.split("\n");
+        const summary = `Git 变动 (${lines.length} 个文件):\n${status}${diff ? "\n\n" + diff : ""}`;
         return { hasChanges: true, summary };
     } catch {
         return null;
@@ -32,8 +44,14 @@ export async function getGitSummary(workDir: string): Promise<GitSummaryResult |
  */
 export async function getGitFullDiff(workDir: string): Promise<string> {
     try {
-        const diff = execSync("git diff HEAD", { cwd: workDir, encoding: "utf-8", timeout: 5000 });
-        if (!diff || !diff.trim()) {
+        const res = spawnSync("git", ["diff", "HEAD"], {
+            cwd: workDir,
+            encoding: "utf-8",
+            timeout: 5000,
+            windowsHide: true,
+        });
+        const diff = (res.stdout || "").trim();
+        if (!diff) {
             return "暂无已追踪文件的修改。";
         }
         if (diff.length > 2000) {

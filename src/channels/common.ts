@@ -38,11 +38,7 @@ export function shouldNotifyChannel(cfg: Config, channelName: string): boolean {
 
     // 1. 检查该渠道是否已在 channels 配置中启用
     const channelConf = (cfg?.channels as any)?.[ch];
-    if (ch === "wechat") {
-        if (channelConf && channelConf.enabled === false) return false;
-    } else {
-        if (!channelConf || !channelConf.enabled) return false;
-    }
+    if (!channelConf || !channelConf.enabled) return false;
 
     // 2. 检查本地任务推送白名单配置 notifyChannels
     const notifySetting = cfg?.notifyChannels;
@@ -74,7 +70,7 @@ export function getChannelNotifyStatus(cfg: Config): ChannelNotifyStatusItem[] {
 
     return allChannels.map((c) => {
         const chConf = (cfg?.channels as any)?.[c.key];
-        const isEnabled = c.key === "wechat" ? (chConf?.enabled !== false) : Boolean(chConf?.enabled);
+        const isEnabled = Boolean(chConf?.enabled);
         const willNotify = shouldNotifyChannel(cfg, c.key);
         return {
             ...c,

@@ -3,6 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
+import { resolveActiveClaudeSession } from "./session-resolver.js";
 import type { Config, Instance, ActiveFocus, PendingQuestion, SourceType } from "../types/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -76,7 +77,7 @@ export function getConfig(): Config {
         notifyChannels: ["all"],
         projects: [{ name: "默认工作区", path: WORKSPACE_DIR }],
         channels: {
-            wechat: { enabled: true },
+            wechat: { enabled: false },
             feishu: { enabled: false, appId: "", appSecret: "" },
             dingtalk: { enabled: false, clientId: "", clientSecret: "" },
         },
@@ -258,6 +259,24 @@ export function setActiveInstance(inst: Partial<Instance> & { id?: string; num?:
     return targetInst;
 }
 
+/**
+ * 仅更新指定任务实例的元数据（不改变用户的全局活动焦点），避免抢焦点竞态
+ */
+export function updateInstance(idOrNum: string | number, updates: Partial<Instance>): Instance | null {
+    const instances = getInstances();
+    const inst = instances.find((i) => i.id === idOrNum || i.num === idOrNum);
+    if (!inst) return null;
+
+    Object.assign(inst, updates);
+    saveInstances(instances);
+
+    // 若该实例恰好是当前活动焦点，则同步更新焦点元数据
+    if (inst.active) {
+        saveActiveFocus(inst);
+    }
+    return inst;
+}
+
 export function registerOrUpdateInstance(
     agentKey: string,
     agentName: string,
@@ -274,29 +293,64 @@ export function registerOrUpdateInstance(
         (i) => i.id === instanceId || (i.agentKey === agentKey && path.resolve(i.workDir) === resolvedDir)
     );
 
+    const activeClaudeSession = agentKey === "claude" ? resolveActiveClaudeSession(resolvedDir) : null;
+
     if (!inst) {
-        const nextNum = instances.length > 0 ? Math.max(...instances.map((i) => i.num || 0)) + 1 : 1;
-        inst = {
-            id: instanceId,
-            num: nextNum,
-            agentKey,
-            agentName,
-            projectName: projName,
-            workDir: resolvedDir,
-            source,
-            sourceLabel: source === "desktop" ? "[本地]" : "[远程]",
-            sessionId: crypto.randomUUID(),
-            turnCount: 0,
-            active: true,
-            createdAt: Date.now(),
-            lastActiveAt: Date.now(),
-        };
-        instances.push(inst);
+        // 检查是否存在未被实际执行过的默认占位任务 (default-task 且 turnCount === 0)
+        const defaultPlaceholderIdx = instances.findIndex(
+            (i) => (i.id === "default-task" || i.projectName === "默认工作区") && (i.turnCount === 0)
+        );
+
+        const initialSessionId = activeClaudeSession || crypto.randomUUID();
+
+        if (defaultPlaceholderIdx !== -1 && instances.length === 1) {
+            // 单独占位时直接顶替为项目 1
+            inst = {
+                id: instanceId,
+                num: 1,
+                agentKey,
+                agentName,
+                projectName: projName,
+                workDir: resolvedDir,
+                source,
+                sourceLabel: source === "desktop" ? "[本地]" : "[远程]",
+                sessionId: initialSessionId,
+                turnCount: 0,
+                active: true,
+                createdAt: Date.now(),
+                lastActiveAt: Date.now(),
+            };
+            instances[0] = inst;
+        } else {
+            if (defaultPlaceholderIdx !== -1) {
+                instances.splice(defaultPlaceholderIdx, 1);
+            }
+            const nextNum = instances.length > 0 ? Math.max(...instances.map((i) => i.num || 0)) + 1 : 1;
+            inst = {
+                id: instanceId,
+                num: nextNum,
+                agentKey,
+                agentName,
+                projectName: projName,
+                workDir: resolvedDir,
+                source,
+                sourceLabel: source === "desktop" ? "[本地]" : "[远程]",
+                sessionId: initialSessionId,
+                turnCount: 0,
+                active: true,
+                createdAt: Date.now(),
+                lastActiveAt: Date.now(),
+            };
+            instances.push(inst);
+        }
     } else {
         inst.agentName = agentName;
         inst.projectName = projName;
         inst.source = source;
         inst.sourceLabel = source === "desktop" ? "[本地]" : "[远程]";
+        if (activeClaudeSession) {
+            inst.sessionId = activeClaudeSession;
+        }
         inst.lastActiveAt = Date.now();
     }
 

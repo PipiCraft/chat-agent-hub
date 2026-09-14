@@ -1,142 +1,15 @@
-import fs from "node:fs";
-import path from "node:path";
 import readline from "node:readline";
-import * as lark from "@larksuiteoapi/node-sdk";
 
 import {
-    AUTH_PATH,
-    LAST_FEISHU_USER_PATH,
-    LAST_DINGTALK_USER_PATH,
     getConfig,
     getPendingQuestions,
     savePendingQuestions,
     allocateReqId,
     registerOrUpdateInstance,
 } from "./core/state.js";
-import { shouldNotifyChannel, formatWechatText } from "./channels/common.js";
-
-const baseInfo = {
-    channel_version: "2.4.8",
-    bot_agent: "OpenClaw",
-};
-
-function getAuth() {
-    if (!fs.existsSync(AUTH_PATH)) return null;
-    try {
-        return JSON.parse(fs.readFileSync(AUTH_PATH, "utf-8"));
-    } catch {
-        return null;
-    }
-}
-
-async function sendToFeishu(text: string): Promise<boolean | null> {
-    try {
-        const conf = getConfig();
-        const feishuConf = conf.channels?.feishu;
-        if (!feishuConf || !feishuConf.enabled || !feishuConf.appId || !feishuConf.appSecret) return null;
-        if (!fs.existsSync(LAST_FEISHU_USER_PATH)) return null;
-        const raw = fs.readFileSync(LAST_FEISHU_USER_PATH, "utf-8").trim();
-        if (!raw) return null;
-
-        let receiveIdType = "open_id";
-        let receiveId = raw;
-        if (raw.startsWith("{")) {
-            try {
-                const parsed = JSON.parse(raw);
-                receiveId = parsed.openId || parsed.chatId;
-                receiveIdType = receiveId?.startsWith("oc_") ? "chat_id" : "open_id";
-            } catch {}
-        } else if (raw.startsWith("oc_")) {
-            receiveIdType = "chat_id";
-        }
-
-        if (!receiveId) return null;
-
-        const larkClient = new lark.Client({ appId: feishuConf.appId, appSecret: feishuConf.appSecret });
-        await larkClient.im.message.create({
-            params: { receive_id_type: receiveIdType as any },
-            data: {
-                receive_id: receiveId,
-                msg_type: "text",
-                content: JSON.stringify({ text }),
-            },
-        });
-        return true;
-    } catch {
-        return null;
-    }
-}
-
-async function sendToDingtalk(content: string): Promise<boolean | null> {
-    if (!fs.existsSync(LAST_DINGTALK_USER_PATH)) return null;
-    try {
-        const conf = getConfig();
-        if (!conf.channels?.dingtalk?.enabled) return null;
-        const dtData = JSON.parse(fs.readFileSync(LAST_DINGTALK_USER_PATH, "utf-8"));
-        if (!dtData?.webhook) return null;
-
-        const firstLine = content.split("\n")[0].slice(0, 30);
-        await fetch(dtData.webhook, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                msgtype: "markdown",
-                markdown: {
-                    title: firstLine || "Agent Hub 通知",
-                    text: content,
-                },
-            }),
-        });
-        return true;
-    } catch {
-        return null;
-    }
-}
-
-async function sendToWechat(text: string): Promise<any> {
-    const auth = getAuth();
-    if (!auth || !auth.botToken || !auth.baseUrl) return null;
-
-    const formattedText = formatWechatText(text);
-
-    const payload = {
-        msg: {
-            from_user_id: "",
-            to_user_id: auth.userId,
-            client_id: `cb-mcp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            message_type: 2,
-            message_state: 2,
-            item_list: [
-                {
-                    type: 1,
-                    text_item: {
-                        text: formattedText,
-                    },
-                },
-            ],
-        },
-        base_info: baseInfo,
-    };
-
-    const res = await fetch(`${auth.baseUrl}/ilink/bot/sendmessage`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "iLink-App-Id": "bot",
-            "iLink-App-ClientVersion": "132104",
-            "X-WECHAT-UIN": Buffer.from(String(12345678)).toString("base64"),
-            "AuthorizationType": "ilink_bot_token",
-            "Authorization": `Bearer ${auth.botToken.trim()}`,
-        },
-        body: JSON.stringify(payload),
-    });
-
-    const data = await res.json() as any;
-    if (data.ret !== undefined && data.ret !== 0) {
-        throw new Error(`微信发送失败: ${JSON.stringify(data)}`);
-    }
-    return data;
-}
+import { shouldNotifyChannel } from "./channels/common.js";
+import { pushToActiveChannels, pushToWechat, pushToDingtalk } from "./channels/dispatcher.js";
+import { resolveAgentKey } from "./core/runner.js";
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -246,7 +119,7 @@ rl.on("line", async (line: string) => {
         if (name === "notify_agent" || name === "notify_wechat") {
             const message = args?.message || "任务已执行完毕。";
             const agentName = args?.agent || "Claude Code";
-            const agentKey = agentName.toLowerCase().includes("opencode") ? "opencode" : agentName.toLowerCase().includes("hermes") ? "hermes" : "claude";
+            const agentKey = resolveAgentKey(agentName);
             const workDir = args?.workDir || process.cwd();
             const customProject = args?.project;
 
@@ -260,35 +133,26 @@ rl.on("line", async (line: string) => {
                     `当前项目: [${inst.num}] ${inst.projectName} (直接回复继续)`,
                 ].join("\n\n");
 
-                const conf = getConfig();
-                const pushTasks: Promise<any>[] = [];
-                const pushedChannels: string[] = [];
+                const pushRes = await pushToActiveChannels(wechatContent);
 
-                if (shouldNotifyChannel(conf, "wechat")) {
-                    pushTasks.push(
-                        sendToWechat(wechatContent).then((res) => {
-                            if (res) pushedChannels.push("微信");
-                        })
-                    );
-                }
-                if (shouldNotifyChannel(conf, "feishu")) {
-                    pushTasks.push(
-                        sendToFeishu(wechatContent).then((res) => {
-                            if (res) pushedChannels.push("飞书");
-                        })
-                    );
-                }
-                if (shouldNotifyChannel(conf, "dingtalk")) {
-                    pushTasks.push(
-                        sendToDingtalk(wechatContent).then((res) => {
-                            if (res) pushedChannels.push("钉钉");
-                        })
-                    );
+                if (!pushRes.success) {
+                    sendResponse({
+                        jsonrpc: "2.0",
+                        id,
+                        result: {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: `推送失败: 所有目标渠道均未发送成功或未启用 (已尝试: ${pushRes.failedChannels.join("、") || "无已启用渠道"})`,
+                                },
+                            ],
+                            isError: true,
+                        },
+                    });
+                    return;
                 }
 
-                await Promise.allSettled(pushTasks);
-
-                const targetDesc = pushedChannels.length > 0 ? ` (${pushedChannels.join("、")})` : "";
+                const targetDesc = ` (${pushRes.pushedChannels.join("、")})`;
                 sendResponse({
                     jsonrpc: "2.0",
                     id,
@@ -319,7 +183,7 @@ rl.on("line", async (line: string) => {
             const question = args?.question || "请确认是否继续？";
             const options = Array.isArray(args?.options) && args.options.length > 0 ? args.options : null;
             const agentName = args?.agent || "Claude Code";
-            const agentKey = agentName.toLowerCase().includes("opencode") ? "opencode" : agentName.toLowerCase().includes("hermes") ? "hermes" : "claude";
+            const agentKey = resolveAgentKey(agentName);
             const workDir = args?.workDir || process.cwd();
             const customProject = args?.project;
             const timeoutSeconds = args?.timeout_seconds || 300;
@@ -369,10 +233,10 @@ rl.on("line", async (line: string) => {
 
                 const askTasks: Promise<any>[] = [];
                 if (shouldNotifyChannel(conf, "wechat")) {
-                    askTasks.push(sendToWechat(wechatContent));
+                    askTasks.push(pushToWechat(wechatContent));
                 }
                 if (shouldNotifyChannel(conf, "dingtalk")) {
-                    askTasks.push(sendToDingtalk(wechatContent));
+                    askTasks.push(pushToDingtalk(wechatContent));
                 }
                 await Promise.allSettled(askTasks);
 

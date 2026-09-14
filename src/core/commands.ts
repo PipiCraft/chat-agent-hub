@@ -9,6 +9,7 @@ import {
     saveInstances,
     getActiveInstance,
     setActiveInstance,
+    updateInstance,
     saveActiveFocus,
     getPendingQuestions,
     savePendingQuestions,
@@ -21,7 +22,11 @@ import {
     getRecentTaskLogs,
     stopCurrentTask,
     executeByAgent,
+    acquireTaskLock,
+    releaseTaskLock,
+    type RunningTaskInfo,
 } from "./runner.js";
+import { resolveActiveClaudeSession } from "./session-resolver.js";
 import { getGitSummary, getGitFullDiff } from "./git.js";
 import {
     normalizeChannelName,
@@ -182,7 +187,7 @@ export async function handleCommand({
     }
 
     // 1. 帮助菜单
-    if (["菜单", "？", "?", "help", "帮助"].includes(rawText.toLowerCase())) {
+    if (["菜单", "help", "帮助"].includes(rawText.toLowerCase())) {
         appendHistoryLog(userId, rawText, HELP_MENU, config.workDir, 1);
         await sendReply(replyTarget, HELP_MENU);
         return;
@@ -198,7 +203,7 @@ export async function handleCommand({
         const memMB = Math.round(process.memoryUsage().rss / 1024 / 1024);
 
         const channelsList = [];
-        if (config.channels?.wechat?.enabled !== false) channelsList.push("微信");
+        if (config.channels?.wechat?.enabled) channelsList.push("微信");
         if (config.channels?.feishu?.enabled) channelsList.push("飞书");
         if (config.channels?.dingtalk?.enabled) channelsList.push("钉钉");
 
@@ -287,7 +292,7 @@ export async function handleCommand({
         }
 
         // 通用通道状态
-        const wechatOn = config.channels?.wechat?.enabled !== false;
+        const wechatOn = Boolean(config.channels?.wechat?.enabled);
         const feishuOn = Boolean(config.channels?.feishu?.enabled);
         const dingtalkOn = Boolean(config.channels?.dingtalk?.enabled);
 
@@ -441,10 +446,10 @@ export async function handleCommand({
     const agentMatch = rawText.match(/^(?:助手|智能体|agents?)\s*(.*)$/i);
     if (agentMatch) {
         const target = agentMatch[1].trim().toLowerCase();
-        const detected = detectInstalledAgents();
+        const activeInst = getActiveInstance(false);
+        const detected = detectInstalledAgents(activeInst?.workDir || config.workDir);
         const available = detected.filter((a) => a.installed);
-        const activeInst = getActiveInstance();
-        const defAgent = resolveDefaultAgent(config);
+        const defAgent = resolveDefaultAgent(config, detected);
 
         if (!target) {
             // 查看列表
@@ -459,8 +464,9 @@ export async function handleCommand({
             } else {
                 available.forEach((a, idx) => {
                     const isDef = a.key === defAgent.key ? " (全局默认)" : "";
-                    const isCur = a.key === activeInst.agentKey ? " [当前使用]" : "";
-                    reply += `[${idx + 1}] ${a.name} (${a.key})${isDef}${isCur}\n`;
+                    const isCur = activeInst && a.key === activeInst.agentKey ? " [当前使用]" : "";
+                    const mcpTag = a.mcpConfigured ? " [MCP已连]" : " [MCP未配]";
+                    reply += `[${idx + 1}] ${a.name} (${a.key})${isDef}${isCur}${mcpTag}\n`;
                 });
             }
             reply += `\n切换智能体: 回复「助手 <编号/名称>」\n设置全局默认: 回复「默认助手 <编号/名称>」`;
@@ -483,13 +489,14 @@ export async function handleCommand({
             return;
         }
 
-        activeInst.agentKey = targetAgent.key;
-        activeInst.agentName = targetAgent.name;
-        setActiveInstance(activeInst);
+        const currentInst = getActiveInstance();
+        currentInst.agentKey = targetAgent.key;
+        currentInst.agentName = targetAgent.name;
+        setActiveInstance(currentInst);
 
         const warn = targetAgent.installed ? "" : "\n警告: 本机尚未检测到该命令，请确保已安装。";
-        const reply = `当前任务 [${activeInst.num}] 已切换智能体为: ${targetAgent.name}${warn}`;
-        appendHistoryLog(userId, rawText, reply, activeInst.workDir, activeInst.turnCount);
+        const reply = `当前任务 [${currentInst.num}] 已切换智能体为: ${targetAgent.name}${warn}`;
+        appendHistoryLog(userId, rawText, reply, currentInst.workDir, currentInst.turnCount);
         await sendReply(replyTarget, reply);
         return;
     }
@@ -650,18 +657,43 @@ export async function handleCommand({
 
     // 13. 默认指令：交由当前活跃智能体异步执行
     const activeInst = getActiveInstance();
-    const running = getRunningTask();
-    if (running) {
-        const elapsed = Math.floor((Date.now() - running.startTime) / 1000);
-        await sendReply(replyTarget, `已有任务执行中 (${elapsed}s):\n[${running.projectName}] ${running.agentName}\n\n回复「停止」可取消执行。`);
+    if (activeInst.agentKey === "claude") {
+        const liveSessionId = resolveActiveClaudeSession(activeInst.workDir);
+        if (liveSessionId && liveSessionId !== activeInst.sessionId) {
+            activeInst.sessionId = liveSessionId;
+            updateInstance(activeInst.id, { sessionId: liveSessionId });
+        }
+    }
+
+    const taskInfo: RunningTaskInfo = {
+        agentKey: activeInst.agentKey,
+        agentName: activeInst.agentName,
+        projectName: activeInst.projectName,
+        workDir: activeInst.workDir,
+        prompt: rawText,
+        startTime: Date.now(),
+    };
+
+    // 同步加锁：彻底消除 await sendReply 网络延迟带来的双任务并发竞态时间窗口
+    if (!acquireTaskLock(taskInfo)) {
+        const running = getRunningTask();
+        const elapsed = running ? Math.floor((Date.now() - running.startTime) / 1000) : 0;
+        await sendReply(
+            replyTarget,
+            `已有任务执行中 (${elapsed}s):\n[${running?.projectName || "任务"}] ${running?.agentName || "智能体"}\n\n回复「停止」可取消执行。`
+        );
         return;
     }
 
     // 立即回复任务开始通知
-    await sendReply(
-        replyTarget,
-        `[${activeInst.num}:${activeInst.projectName}] 开始执行 (${activeInst.agentName}):\n${rawText}\n\n(回复「停止」可取消，回复「日志」可查看控制台)`
-    );
+    try {
+        await sendReply(
+            replyTarget,
+            `[${activeInst.num}:${activeInst.projectName}] 开始执行 (${activeInst.agentName}):\n${rawText}\n\n(回复「停止」可取消，回复「日志」可查看控制台)`
+        );
+    } catch (notifyErr: any) {
+        console.error("[-] 推送任务开始提示失败:", notifyErr?.message);
+    }
 
     // 异步执行智能体任务
     (async () => {
@@ -676,10 +708,16 @@ export async function handleCommand({
             const fakeSession = { id: activeInst.sessionId, turnCount: activeInst.turnCount };
             const output = await executeByAgent(activeInst.agentKey, rawText, activeInst.workDir, fakeSession);
 
-            activeInst.turnCount += 1;
-            setActiveInstance(activeInst);
+            const updatedTurn = (activeInst.turnCount || 0) + 1;
+            activeInst.turnCount = updatedTurn;
 
-            appendHistoryLog(userId, rawText, `[${activeInst.agentName} · ${activeInst.projectName}] ${output}`, activeInst.workDir, activeInst.turnCount);
+            // 仅更新该任务的轮次与活跃时间，不抢回用户的当前焦点
+            updateInstance(activeInst.id, {
+                turnCount: updatedTurn,
+                lastActiveAt: Date.now(),
+            });
+
+            appendHistoryLog(userId, rawText, `[${activeInst.agentName} · ${activeInst.projectName}] ${output}`, activeInst.workDir, updatedTurn);
 
             let gitSummaryText = "";
             try {
@@ -694,6 +732,7 @@ export async function handleCommand({
                 `[${activeInst.num}:${activeInst.projectName}]\n\n${output}${gitSummaryText}`
             );
         } catch (err) {
+            releaseTaskLock();
             await sendReply(replyTarget, `执行出错: ${(err as any)?.message}`);
         }
     })();

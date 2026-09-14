@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import path from "node:path";
 import { DWClient, TOPIC_ROBOT } from "dingtalk-stream";
 import { LAST_DINGTALK_USER_PATH } from "../core/state.js";
 
@@ -158,6 +157,7 @@ export async function sendDingtalkApprovalCard(replyTarget: any, { reqId, questi
         `**发起智能体**: ${agentName || "Claude Code"}`,
         `**请示事项**: ${question}`,
         optionsText,
+        `*(审批有效时间: ${timeoutSeconds}s)*`,
     ].join("\n\n");
 
     await sendDingtalkReply(replyTarget, cardMarkdown);

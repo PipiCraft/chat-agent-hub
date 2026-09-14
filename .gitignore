@@ -33,4 +33,5 @@ yarn-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+.ohmyagent/
 *.tmp

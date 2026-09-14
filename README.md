@@ -130,9 +130,21 @@ Hub 原生提供符合 Model Context Protocol 标准的 stdio 服务端，通过
 - `notify_agent`：向手机端发送进度汇报或长任务完成通知。
 - `ask_agent`：向手机端发起方案决策或执行审批，挂起等待手机用户答复（支持选项与超时回退）。
 
-### 客户端配置示例
+### 1. Claude Code 终端命令行（推荐一键全局配置）
 
-在 Claude Desktop 或 Claude Code 的 MCP 配置文件中（如 `claude_desktop_config.json`）：
+在终端中执行以下命令，即可一键挂载到所有项目中：
+
+```bash
+# 全局用户级配置（推荐：对本机所有目录和项目均生效）
+claude mcp add -s user chat-agent-hub cah mcp
+
+# 仅对当前项目生效（局部配置，仅在当前目录生效）
+claude mcp add chat-agent-hub cah mcp
+```
+
+### 2. 桌面客户端配置（Cursor / Claude Desktop / Windsurf 等）
+
+在对应软件的 MCP 配置文件（如 `claude_desktop_config.json` 或 Cursor MCP 设置）中填入：
 
 ```json
 {
@@ -144,6 +156,18 @@ Hub 原生提供符合 Model Context Protocol 标准的 stdio 服务端，通过
   }
 }
 ```
+
+> **💡 Windows 特别提示**：若某些 IDE/终端沙箱未继承系统 `PATH` 导致找不到 `cah` 命令，可改用 node 绝对路径：
+> ```json
+> {
+>   "mcpServers": {
+>     "chat-agent-hub": {
+>       "command": "node",
+>       "args": ["<你的项目目录>\\dist\\cli.js", "mcp"]
+>     }
+>   }
+> }
+> ```
 
 ---
 
